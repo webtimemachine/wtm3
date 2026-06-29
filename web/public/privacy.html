@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Web Time Machine</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; background: #0b1020; color: #e7ebf5;
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .wrap { max-width: 740px; margin: 0 auto; padding: 48px 22px 80px; }
+      h1 { font-size: 28px; margin: 0 0 4px; }
+      h2 { font-size: 18px; margin: 32px 0 8px; }
+      a { color: #38bdf8; }
+      .muted { color: #8d97b5; }
+      code { background: #141a2e; padding: 1px 6px; border-radius: 5px; }
+      hr { border: 0; border-top: 1px solid #232b45; margin: 28px 0; }
+      ul { padding-left: 20px; }
+      li { margin: 4px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Web Time Machine — Privacy Policy</h1>
+      <p class="muted">Last updated: June 29, 2026</p>
+
+      <p>
+        Web Time Machine ("the app") lets you record, search, and sync your own browsing history.
+        It is built so your data stays scoped to your account. This policy explains what is
+        collected and how it is used.
+      </p>
+
+      <h2>What we collect</h2>
+      <ul>
+        <li>
+          <b>Account:</b> your email address and a password (stored only as a salted PBKDF2 hash —
+          never in plain text).
+        </li>
+        <li>
+          <b>Captured pages:</b> for pages you visit while the browser extension is installed and you
+          are logged in — the URL, page title, visit timestamp, and the page's <i>readable text</i>
+          (extracted on your device with Mozilla Readability). Form fields, passwords, and content
+          behind logins are not specifically targeted; only the rendered readable text is captured.
+        </li>
+        <li>
+          <b>Devices ("nodes"):</b> a name and platform label for each device you sync from.
+        </li>
+      </ul>
+
+      <h2>How it's used</h2>
+      <ul>
+        <li>To sync your captured history across your own devices.</li>
+        <li>To provide full-text search over your captured pages.</li>
+        <li>
+          To generate a one-line summary per page. The readable text is sent to
+          <b>Cloudflare Workers AI</b> for this purpose and is not used to train models.
+        </li>
+      </ul>
+
+      <h2>Where it's stored</h2>
+      <p>
+        Data is stored on <b>Cloudflare</b> infrastructure (D1 for metadata and the search index,
+        R2 for page text) under the operator's account. We do not sell your data or share it with
+        advertisers. We do not share it with third parties except the infrastructure providers
+        (Cloudflare) needed to run the service.
+      </p>
+
+      <h2>Capture is passive and in your control</h2>
+      <ul>
+        <li>Nothing is captured or sent until you install an extension and log in.</li>
+        <li>You can turn capture off at any time from the extension popup.</li>
+        <li>The extensions only read page content; they do not modify pages or inject ads.</li>
+      </ul>
+
+      <h2>Retention &amp; deletion</h2>
+      <ul>
+        <li>History automatically expires on a retention schedule (default 365 days).</li>
+        <li>
+          You can delete any page from the dashboard or extension; deletions propagate to all your
+          devices and the page's stored text is purged.
+        </li>
+        <li>To delete your entire account and all associated data, contact us (below).</li>
+      </ul>
+
+      <h2>Children</h2>
+      <p>The app is not directed at children under 13 and should not be used by them.</p>
+
+      <h2>Changes</h2>
+      <p>We may update this policy; material changes will be reflected by the date above.</p>
+
+      <hr />
+      <p class="muted">
+        Questions or deletion requests: <a href="mailto:info@webtimemachine.io">info@webtimemachine.io</a>
+        &nbsp;·&nbsp; <a href="https://github.com/webtimemachine/wtm3">source code</a>
+      </p>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "@wtm/shared": ["../shared/src/index.ts"],
+      "@wtm/shared/api": ["../shared/src/api.ts"]
+    }
+  },
+  "include": ["src"]
+}

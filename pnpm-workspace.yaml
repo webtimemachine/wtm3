@@ -1,0 +1,6 @@
+packages:
+  - shared
+  - backend
+  - extension-chrome
+  - extension-safari
+  - web

@@ -1,0 +1,640 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		CEDE827B2FF3107A00AC9813 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEDE827A2FF3107A00AC9813 /* AppDelegate.swift */; };
+		CEDE827F2FF3107A00AC9813 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = CEDE827D2FF3107A00AC9813 /* Main.html */; };
+		CEDE82812FF3107A00AC9813 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82802FF3107A00AC9813 /* Icon.png */; };
+		CEDE82832FF3107A00AC9813 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82822FF3107A00AC9813 /* Style.css */; };
+		CEDE82852FF3107A00AC9813 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEDE82842FF3107A00AC9813 /* SceneDelegate.swift */; };
+		CEDE82872FF3107A00AC9813 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEDE82862FF3107A00AC9813 /* ViewController.swift */; };
+		CEDE828A2FF3107A00AC9813 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82882FF3107A00AC9813 /* LaunchScreen.storyboard */; };
+		CEDE828D2FF3107A00AC9813 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CEDE828B2FF3107A00AC9813 /* Main.storyboard */; };
+		CEDE82952FF3107B00AC9813 /* Web Time Machine Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEDE82942FF3107B00AC9813 /* Web Time Machine Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CEDE829A2FF3107B00AC9813 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEDE82992FF3107B00AC9813 /* SafariWebExtensionHandler.swift */; };
+		CEDE829C2FF3107B00AC9813 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CEDE828E2FF3107B00AC9813 /* Assets.xcassets */; };
+		CEDE82B12FF3107B00AC9813 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82A72FF3107B00AC9813 /* popup.js */; };
+		CEDE82B22FF3107B00AC9813 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82A92FF3107B00AC9813 /* background.js */; };
+		CEDE82B32FF3107B00AC9813 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82AA2FF3107B00AC9813 /* popup.html */; };
+		CEDE82B42FF3107B00AC9813 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82AC2FF3107B00AC9813 /* icons */; };
+		CEDE82B52FF3107B00AC9813 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82AD2FF3107B00AC9813 /* manifest.json */; };
+		CEDE82B62FF3107B00AC9813 /* popup.css in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82AE2FF3107B00AC9813 /* popup.css */; };
+		CEDE82B72FF3107B00AC9813 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = CEDE82AF2FF3107B00AC9813 /* content.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CEDE82962FF3107B00AC9813 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CEDE826F2FF3107A00AC9813 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CEDE82932FF3107B00AC9813;
+			remoteInfo = "Web Time Machine Extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CEDE82A22FF3107B00AC9813 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				CEDE82952FF3107B00AC9813 /* Web Time Machine Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		CEDE82772FF3107A00AC9813 /* Web Time Machine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Web Time Machine.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CEDE827A2FF3107A00AC9813 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		CEDE827E2FF3107A00AC9813 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		CEDE82802FF3107A00AC9813 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		CEDE82822FF3107A00AC9813 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		CEDE82842FF3107A00AC9813 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		CEDE82862FF3107A00AC9813 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		CEDE82892FF3107A00AC9813 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		CEDE828C2FF3107A00AC9813 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		CEDE828E2FF3107B00AC9813 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CEDE828F2FF3107B00AC9813 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		CEDE82942FF3107B00AC9813 /* Web Time Machine Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Web Time Machine Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CEDE82992FF3107B00AC9813 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		CEDE829B2FF3107B00AC9813 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		CEDE82A72FF3107B00AC9813 /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = Resources/popup.js; sourceTree = "<group>"; };
+		CEDE82A82FF3107B00AC9813 /* popup.js.map */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; name = popup.js.map; path = Resources/popup.js.map; sourceTree = "<group>"; };
+		CEDE82A92FF3107B00AC9813 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = Resources/background.js; sourceTree = "<group>"; };
+		CEDE82AA2FF3107B00AC9813 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = Resources/popup.html; sourceTree = "<group>"; };
+		CEDE82AB2FF3107B00AC9813 /* content.js.map */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; name = content.js.map; path = Resources/content.js.map; sourceTree = "<group>"; };
+		CEDE82AC2FF3107B00AC9813 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = Resources/icons; sourceTree = "<group>"; };
+		CEDE82AD2FF3107B00AC9813 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
+		CEDE82AE2FF3107B00AC9813 /* popup.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = popup.css; path = Resources/popup.css; sourceTree = "<group>"; };
+		CEDE82AF2FF3107B00AC9813 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = Resources/content.js; sourceTree = "<group>"; };
+		CEDE82B02FF3107B00AC9813 /* background.js.map */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; name = background.js.map; path = Resources/background.js.map; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		CEDE82742FF3107A00AC9813 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CEDE82912FF3107B00AC9813 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		CEDE826E2FF3107A00AC9813 = {
+			isa = PBXGroup;
+			children = (
+				CEDE82792FF3107A00AC9813 /* Web Time Machine */,
+				CEDE82982FF3107B00AC9813 /* Web Time Machine Extension */,
+				CEDE82782FF3107A00AC9813 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CEDE82782FF3107A00AC9813 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CEDE82772FF3107A00AC9813 /* Web Time Machine.app */,
+				CEDE82942FF3107B00AC9813 /* Web Time Machine Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CEDE82792FF3107A00AC9813 /* Web Time Machine */ = {
+			isa = PBXGroup;
+			children = (
+				CEDE827A2FF3107A00AC9813 /* AppDelegate.swift */,
+				CEDE82842FF3107A00AC9813 /* SceneDelegate.swift */,
+				CEDE82862FF3107A00AC9813 /* ViewController.swift */,
+				CEDE82882FF3107A00AC9813 /* LaunchScreen.storyboard */,
+				CEDE828B2FF3107A00AC9813 /* Main.storyboard */,
+				CEDE828E2FF3107B00AC9813 /* Assets.xcassets */,
+				CEDE828F2FF3107B00AC9813 /* Info.plist */,
+				CEDE827C2FF3107A00AC9813 /* Resources */,
+			);
+			path = "Web Time Machine";
+			sourceTree = "<group>";
+		};
+		CEDE827C2FF3107A00AC9813 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				CEDE827D2FF3107A00AC9813 /* Main.html */,
+				CEDE82802FF3107A00AC9813 /* Icon.png */,
+				CEDE82822FF3107A00AC9813 /* Style.css */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		CEDE82982FF3107B00AC9813 /* Web Time Machine Extension */ = {
+			isa = PBXGroup;
+			children = (
+				CEDE82A62FF3107B00AC9813 /* Resources */,
+				CEDE82992FF3107B00AC9813 /* SafariWebExtensionHandler.swift */,
+				CEDE829B2FF3107B00AC9813 /* Info.plist */,
+			);
+			path = "Web Time Machine Extension";
+			sourceTree = "<group>";
+		};
+		CEDE82A62FF3107B00AC9813 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				CEDE82A72FF3107B00AC9813 /* popup.js */,
+				CEDE82A82FF3107B00AC9813 /* popup.js.map */,
+				CEDE82A92FF3107B00AC9813 /* background.js */,
+				CEDE82AA2FF3107B00AC9813 /* popup.html */,
+				CEDE82AB2FF3107B00AC9813 /* content.js.map */,
+				CEDE82AC2FF3107B00AC9813 /* icons */,
+				CEDE82AD2FF3107B00AC9813 /* manifest.json */,
+				CEDE82AE2FF3107B00AC9813 /* popup.css */,
+				CEDE82AF2FF3107B00AC9813 /* content.js */,
+				CEDE82B02FF3107B00AC9813 /* background.js.map */,
+			);
+			name = Resources;
+			path = "Web Time Machine Extension";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		CEDE82762FF3107A00AC9813 /* Web Time Machine */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CEDE82A32FF3107B00AC9813 /* Build configuration list for PBXNativeTarget "Web Time Machine" */;
+			buildPhases = (
+				CEDE82732FF3107A00AC9813 /* Sources */,
+				CEDE82742FF3107A00AC9813 /* Frameworks */,
+				CEDE82752FF3107A00AC9813 /* Resources */,
+				CEDE82A22FF3107B00AC9813 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CEDE82972FF3107B00AC9813 /* PBXTargetDependency */,
+			);
+			name = "Web Time Machine";
+			packageProductDependencies = (
+			);
+			productName = "Web Time Machine";
+			productReference = CEDE82772FF3107A00AC9813 /* Web Time Machine.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CEDE82932FF3107B00AC9813 /* Web Time Machine Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CEDE829F2FF3107B00AC9813 /* Build configuration list for PBXNativeTarget "Web Time Machine Extension" */;
+			buildPhases = (
+				CEDE82902FF3107B00AC9813 /* Sources */,
+				CEDE82912FF3107B00AC9813 /* Frameworks */,
+				CEDE82922FF3107B00AC9813 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Web Time Machine Extension";
+			packageProductDependencies = (
+			);
+			productName = "Web Time Machine Extension";
+			productReference = CEDE82942FF3107B00AC9813 /* Web Time Machine Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CEDE826F2FF3107A00AC9813 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					CEDE82762FF3107A00AC9813 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					CEDE82932FF3107B00AC9813 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = CEDE82722FF3107A00AC9813 /* Build configuration list for PBXProject "Web Time Machine" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = CEDE826E2FF3107A00AC9813;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = CEDE82782FF3107A00AC9813 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CEDE82762FF3107A00AC9813 /* Web Time Machine */,
+				CEDE82932FF3107B00AC9813 /* Web Time Machine Extension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CEDE82752FF3107A00AC9813 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CEDE82812FF3107A00AC9813 /* Icon.png in Resources */,
+				CEDE828D2FF3107A00AC9813 /* Main.storyboard in Resources */,
+				CEDE828A2FF3107A00AC9813 /* LaunchScreen.storyboard in Resources */,
+				CEDE827F2FF3107A00AC9813 /* Main.html in Resources */,
+				CEDE829C2FF3107B00AC9813 /* Assets.xcassets in Resources */,
+				CEDE82832FF3107A00AC9813 /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CEDE82922FF3107B00AC9813 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CEDE82B22FF3107B00AC9813 /* background.js in Resources */,
+				CEDE82B42FF3107B00AC9813 /* icons in Resources */,
+				CEDE82B62FF3107B00AC9813 /* popup.css in Resources */,
+				CEDE82B52FF3107B00AC9813 /* manifest.json in Resources */,
+				CEDE82B32FF3107B00AC9813 /* popup.html in Resources */,
+				CEDE82B72FF3107B00AC9813 /* content.js in Resources */,
+				CEDE82B12FF3107B00AC9813 /* popup.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CEDE82732FF3107A00AC9813 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CEDE82872FF3107A00AC9813 /* ViewController.swift in Sources */,
+				CEDE827B2FF3107A00AC9813 /* AppDelegate.swift in Sources */,
+				CEDE82852FF3107A00AC9813 /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CEDE82902FF3107B00AC9813 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CEDE829A2FF3107B00AC9813 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CEDE82972FF3107B00AC9813 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CEDE82932FF3107B00AC9813 /* Web Time Machine Extension */;
+			targetProxy = CEDE82962FF3107B00AC9813 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		CEDE827D2FF3107A00AC9813 /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				CEDE827E2FF3107A00AC9813 /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		CEDE82882FF3107A00AC9813 /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				CEDE82892FF3107A00AC9813 /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		CEDE828B2FF3107A00AC9813 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				CEDE828C2FF3107A00AC9813 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		CEDE829D2FF3107B00AC9813 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		CEDE829E2FF3107B00AC9813 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		CEDE82A02FF3107B00AC9813 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2858MX5336;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Web Time Machine Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Web Time Machine Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ttt246llc.wtm;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CEDE82A12FF3107B00AC9813 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2858MX5336;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Web Time Machine Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Web Time Machine Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ttt246llc.wtm;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		CEDE82A42FF3107B00AC9813 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2858MX5336;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Web Time Machine/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Web Time Machine";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ttt246llc.wtm;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CEDE82A52FF3107B00AC9813 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2858MX5336;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Web Time Machine/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Web Time Machine";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ttt246llc.wtm;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CEDE82722FF3107A00AC9813 /* Build configuration list for PBXProject "Web Time Machine" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CEDE829D2FF3107B00AC9813 /* Debug */,
+				CEDE829E2FF3107B00AC9813 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CEDE829F2FF3107B00AC9813 /* Build configuration list for PBXNativeTarget "Web Time Machine Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CEDE82A02FF3107B00AC9813 /* Debug */,
+				CEDE82A12FF3107B00AC9813 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CEDE82A32FF3107B00AC9813 /* Build configuration list for PBXNativeTarget "Web Time Machine" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CEDE82A42FF3107B00AC9813 /* Debug */,
+				CEDE82A52FF3107B00AC9813 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = CEDE826F2FF3107A00AC9813 /* Project object */;
+}

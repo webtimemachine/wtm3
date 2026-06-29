@@ -1,0 +1,21 @@
+// Local-dev-only config: no AI binding (so wrangler doesn't require a remote
+// proxy / workers.dev subdomain) and no cron. D1 + R2 run locally via Miniflare.
+// Production deploys use wrangler.jsonc.
+{
+  "name": "wtm-backend-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wtm",
+      "database_id": "0e4724c9-5630-40b5-957d-6547cc14d649",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "wtm-pages" }],
+  "vars": {
+    "SUMMARY_MODEL": "@cf/meta/llama-3.1-8b-instruct",
+    "DEFAULT_RETENTION_DAYS": "365"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@wtm/extension-chrome",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "icons": "python3 scripts/gen-icons.py",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wtm/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  }
+}

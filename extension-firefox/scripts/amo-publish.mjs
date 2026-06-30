@@ -3,11 +3,9 @@
 // Reads AMO_JWT_ISSUER / AMO_JWT_SECRET from env (AMO API credentials:
 //   addons.mozilla.org → Developer Hub → Manage API Keys).
 //
-//   listed   → submits the version for the public AMO listing (release).
-//              NOTE: the listing must exist on AMO once (created on first manual
-//              upload of gecko id web-time-machine@webtm.io); subsequent versions
-//              are published by this step. AMO hosts the signed file — nothing is
-//              downloaded locally.
+//   listed   → submits the version for the public AMO listing (release). Listing
+//              metadata (license, categories, summary) comes from amo-metadata.json.
+//              Does not wait for Mozilla's review; AMO hosts the signed file.
 //   unlisted → self-distribution: AMO signs the build and web-ext downloads the
 //              signed .xpi. Pass an outDir to copy it to <outDir>/wtm-firefox.xpi
 //              for hosting (used by the beta deploy).
@@ -54,20 +52,24 @@ if (versionOverride) {
   console.log(`patched dist manifest version -> ${versionOverride}`);
 }
 
-const res = spawnSync(
-  "npx",
-  [
-    "--yes",
-    "web-ext@8",
-    "sign",
-    `--source-dir=${sourceDir}`,
-    `--artifacts-dir=${artifactsDir}`,
-    `--channel=${channel}`,
-    `--api-key=${AMO_JWT_ISSUER}`,
-    `--api-secret=${AMO_JWT_SECRET}`,
-  ],
-  { stdio: "inherit", cwd: root },
-);
+const args = [
+  "--yes",
+  "web-ext@8",
+  "sign",
+  `--source-dir=${sourceDir}`,
+  `--artifacts-dir=${artifactsDir}`,
+  `--channel=${channel}`,
+  `--api-key=${AMO_JWT_ISSUER}`,
+  `--api-secret=${AMO_JWT_SECRET}`,
+];
+if (channel === "listed") {
+  // Listed versions require listing metadata (license, categories, summary).
+  // amo-metadata.json carries them; don't block CI on the multi-day review.
+  args.push(`--amo-metadata=${path.join(root, "amo-metadata.json")}`, "--approval-timeout=0");
+}
+// unlisted: keep web-ext's default wait so the auto-signed .xpi can be downloaded.
+
+const res = spawnSync("npx", args, { stdio: "inherit", cwd: root });
 if (res.status !== 0) {
   console.error(`web-ext sign failed (exit ${res.status}).`);
   process.exit(res.status || 1);

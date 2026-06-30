@@ -1,0 +1,29 @@
+name: Chrome release (tag chrome-v*)
+
+# Push a tag like `chrome-v3.0.1` to build, package, and publish the extension to
+# the Chrome Web Store via the API. Bump extension-chrome/manifest.json first.
+on:
+  push:
+    tags: ["chrome-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wtm/extension-chrome run package
+      - run: node extension-chrome/scripts/cws-publish.mjs deploy
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_ITEM_ID: ${{ secrets.CWS_ITEM_ID }}

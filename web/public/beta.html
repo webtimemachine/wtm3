@@ -76,8 +76,8 @@
         <a class="link" href="/downloads/wtm-chrome.zip" download>
           <span>🧩</span><span><b>Chrome extension</b><small>Download · unzip · chrome://extensions → Developer mode → Load unpacked</small></span>
         </a>
-        <a class="link" href="/downloads/wtm-firefox.xpi">
-          <span>🦊</span><span><b>Firefox extension</b><small>Signed beta build — opens Firefox's install prompt directly</small></span>
+        <a id="ff" class="link disabled" href="/downloads/wtm-firefox.xpi">
+          <span>🦊</span><span><b>Firefox extension</b><small id="ffnote">Checking availability…</small></span>
         </a>
         <a class="link" href="https://github.com/webtimemachine/wtm3/releases/latest" target="_blank" rel="noreferrer">
           <span>🤖</span><span><b>Android (APK)</b><small>Download the latest APK from GitHub releases</small></span>
@@ -100,6 +100,25 @@
         tf.href = TESTFLIGHT_URL; tf.classList.remove("disabled");
         document.getElementById("tfnote").textContent = "Open in TestFlight";
       }
+
+      // The signed Firefox XPI only exists once AMO signing is configured. Until
+      // then the static host serves the SPA fallback (HTML) for the missing file,
+      // so confirm we got a real add-on before enabling the one-click link.
+      (async () => {
+        const ffnote = document.getElementById("ffnote");
+        try {
+          const r = await fetch("/downloads/wtm-firefox.xpi", { method: "HEAD" });
+          const type = r.headers.get("content-type") || "";
+          if (r.ok && !type.includes("text/html")) {
+            document.getElementById("ff").classList.remove("disabled");
+            ffnote.textContent = "Signed beta build — opens Firefox's install prompt directly";
+          } else {
+            ffnote.textContent = "Coming soon";
+          }
+        } catch {
+          ffnote.textContent = "Coming soon";
+        }
+      })();
 
       const form = document.getElementById("f");
       const btn = document.getElementById("submit");

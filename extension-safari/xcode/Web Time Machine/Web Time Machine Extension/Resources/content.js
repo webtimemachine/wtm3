@@ -1926,13 +1926,16 @@
     } catch {
     }
   }
-  setTimeout(attempt, CAPTURE_DELAY);
+  var RETRY_DELAYS = [CAPTURE_DELAY, 3500, 7e3, 12e3];
+  function scheduleCaptures() {
+    for (const d of RETRY_DELAYS) setTimeout(attempt, d);
+  }
+  scheduleCaptures();
   var href = location.href;
   setInterval(() => {
     if (location.href !== href) {
       href = location.href;
-      setTimeout(attempt, CAPTURE_DELAY);
+      scheduleCaptures();
     }
   }, POLL_MS);
 })();
-//# sourceMappingURL=content.js.map

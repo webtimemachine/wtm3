@@ -56,6 +56,18 @@ button:disabled { opacity: .5; cursor: default; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 12px; }
 .toggle input { accent-color: var(--accent); }
 
+/* Settings section */
+input[type="number"] {
+  width: 84px; padding: 9px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: #0e1426; color: var(--fg); font-size: 13px;
+}
+.hint { color: var(--muted); font-size: 11px; }
+.settings summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--fg); list-style: none; }
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary::before { content: "⚙  "; }
+.settings[open] > summary { margin-bottom: 10px; }
+.settings .toggle { margin-bottom: 10px; }
+
 .results { overflow-y: auto; max-height: 360px; }
 .hit { padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .hit:hover { background: #10172b; }

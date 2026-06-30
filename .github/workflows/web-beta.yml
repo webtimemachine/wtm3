@@ -22,6 +22,11 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Surface the AMO secret as an env var so the Firefox sign step can be skipped
+    # when it isn't configured — the web beta must deploy regardless.
+    env:
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -39,10 +44,12 @@ jobs:
           mkdir -p web/public/downloads
           cp extension-chrome/wtm-chrome.zip web/public/downloads/wtm-chrome.zip
 
+      # Firefox needs an AMO-signed XPI to install on normal Firefox. Skip (don't
+      # fail the web deploy) when AMO creds aren't set — the /downloads link 404s
+      # until then.
       - name: Build + sign Firefox beta XPI (AMO unlisted)
+        if: ${{ env.AMO_JWT_ISSUER != '' }}
         env:
-          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
-          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
           # Unique version per build so AMO accepts each unlisted signing.
           WTM_FIREFOX_VERSION: 3.0.0.${{ github.run_number }}
         run: |

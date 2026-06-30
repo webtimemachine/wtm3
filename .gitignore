@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# store packages
+*.zip
+
+# backups
+*.bak
+
+# wrangler / cloudflare
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.p8
+AuthKey_*
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+
+# safari web-extension build output (regenerable via build.mjs)
+extension-safari/wtm-extension/
+
+# xcode (safari extension wrapper)
+extension-safari/**/xcuserdata/
+extension-safari/**/*.xcworkspace/xcuserdata/
+extension-safari/**/DerivedData/
+extension-safari/build/

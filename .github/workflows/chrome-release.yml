@@ -1,0 +1,36 @@
+name: Browser extension release (tag browser-v* or chrome-v*)
+
+# Push a tag like `browser-v3.0.1` or `chrome-v3.0.1` to build Chrome and
+# Firefox Android packages side by side. Chrome is also published to the Chrome
+# Web Store via the API. Bump both extension manifests first.
+on:
+  push:
+    tags: ["browser-v*", "chrome-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wtm/extension-chrome run package
+      - run: pnpm --filter @wtm/extension-firefox run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension-release-packages
+          path: |
+            extension-chrome/wtm-chrome.zip
+            extension-firefox/wtm-firefox-android.zip
+          if-no-files-found: error
+      - run: node extension-chrome/scripts/cws-publish.mjs deploy
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_ITEM_ID: ${{ secrets.CWS_ITEM_ID }}

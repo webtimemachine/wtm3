@@ -1,0 +1,33 @@
+name: Deploy web → beta (beta.webtm.io)
+
+# Pull requests touching the web app deploy to beta.webtm.io for testing before
+# they merge to main (which then auto-ships to production). Also runnable manually.
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - "shared/**"
+  workflow_dispatch: {}
+
+concurrency:
+  group: web-beta
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wtm/web build
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: web
+          command: deploy -e beta

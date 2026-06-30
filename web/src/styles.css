@@ -47,7 +47,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 24px; padding: 48px 24px;
 }
-.hero { max-width: 540px; text-align: center; }
+.hero { width: 100%; max-width: 540px; text-align: center; }
 .hero .brand { font-size: clamp(28px, 6vw, 38px); font-weight: 800; margin: 0; }
 .hero .tagline { color: var(--muted); margin: 14px auto 24px; font-size: 15px; max-width: 480px; }
 

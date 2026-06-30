@@ -55,6 +55,10 @@ async function publish(token) {
   });
   const j = await r.json();
   console.log("publish result:", JSON.stringify(j));
+  if (j.error || (Array.isArray(j.status) && !j.status.includes("OK"))) {
+    console.error("publish did not succeed");
+    process.exit(1);
+  }
 }
 
 const token = await accessToken();

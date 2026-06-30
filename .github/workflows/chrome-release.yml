@@ -1,8 +1,9 @@
 name: Browser extension release (tag browser-v* or chrome-v*)
 
 # Push a tag like `browser-v3.0.1` or `chrome-v3.0.1` to build Chrome and
-# Firefox Android packages side by side. Chrome is also published to the Chrome
-# Web Store via the API. Bump both extension manifests first.
+# Firefox Android packages side by side, then publish both: Chrome to the Chrome
+# Web Store and Firefox to addons.mozilla.org (AMO). Bump both extension
+# manifests first. Requires CWS_* and AMO_JWT_ISSUER/AMO_JWT_SECRET secrets.
 on:
   push:
     tags: ["browser-v*", "chrome-v*"]
@@ -28,6 +29,13 @@ jobs:
             extension-chrome/wtm-chrome.zip
             extension-firefox/wtm-firefox-android.zip
           if-no-files-found: error
+      # Publish Firefox to AMO first so a credentials/listing problem fails the run
+      # before Chrome is published (avoids a half-released state). `package` above
+      # already built extension-firefox/dist used by web-ext sign.
+      - run: node extension-firefox/scripts/amo-publish.mjs listed
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
       - run: node extension-chrome/scripts/cws-publish.mjs deploy
         env:
           CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}

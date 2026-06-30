@@ -19,10 +19,10 @@ single central NestJS/Postgres/OpenAI backend — this is **not** a fork of them
             │   ├─ Workers AI: one-line per-page summaries    │
             │   └─ Cron: retention purge                     │
             └──────────────────────────────────────────────┘
-                 ▲             ▲              ▲                  ▲
-   ┌─────────────┘    ┌────────┘     ┌────────┘         ┌────────┘
- Chrome ext      Firefox Android  iOS Safari ext      Web dashboard
- (Readability)   (Readability)    (Readability)       (search + timeline)
+                 ▲            ▲                 ▲
+   ┌─────────────┘   ┌────────┘        ┌────────┘
+ Chrome ext      iOS Safari ext      Web dashboard
+ (Readability)   (Readability)       (search + timeline)
 ```
 
 A **node** is one of your devices. Every node syncs to the single Cloudflare
@@ -37,7 +37,6 @@ all converge across devices.
 | `shared/`           | Wire-protocol types + on-device capture (`@mozilla/readability`) |
 | `backend/`          | Cloudflare Worker: auth, ingest, search, sync, summaries, cron  |
 | `extension-chrome/` | Manifest V3 extension (passive capture)                         |
-| `extension-firefox/`| Firefox for Android extension (passive capture)                  |
 | `extension-safari/` | iOS Safari Web Extension + Xcode wrapper                        |
 | `web/`              | Web dashboard (search + timeline), deploys to `webtm.io`        |
 

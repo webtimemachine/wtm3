@@ -13,9 +13,7 @@
     "dev:backend": "pnpm --filter @wtm/backend dev",
     "deploy:backend": "pnpm --filter @wtm/backend deploy",
     "dev:web": "pnpm --filter @wtm/web dev",
-    "build:chrome": "pnpm --filter @wtm/extension-chrome build",
-    "build:firefox": "pnpm --filter @wtm/extension-firefox build",
-    "package:extensions": "pnpm --filter @wtm/extension-chrome package && pnpm --filter @wtm/extension-firefox package"
+    "build:chrome": "pnpm --filter @wtm/extension-chrome build"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

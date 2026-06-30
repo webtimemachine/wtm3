@@ -10,7 +10,16 @@ import {
   timeAgo,
   type Session,
 } from "./session";
-import { APP_STORE_URL, CHROME_READY, CHROME_STORE_URL, GITHUB_URL, IOS_READY, PRIVACY_URL } from "./links";
+import {
+  APP_STORE_URL,
+  CHROME_READY,
+  CHROME_STORE_URL,
+  FIREFOX_READY,
+  FIREFOX_STORE_URL,
+  GITHUB_URL,
+  IOS_READY,
+  PRIVACY_URL,
+} from "./links";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
@@ -115,7 +124,7 @@ function Auth({ onAuthed }: { onAuthed: (s: Session) => void }) {
 function DownloadBadges() {
   return (
     <div className="badges">
-      {IOS_READY ? (
+      {IOS_READY && APP_STORE_URL ? (
         <a className="badge" href={APP_STORE_URL} target="_blank" rel="noreferrer">
           <AppleGlyph />
           <span>
@@ -146,6 +155,23 @@ function DownloadBadges() {
           <span>
             <small>Coming soon to</small>
             <b>Chrome</b>
+          </span>
+        </span>
+      )}
+      {FIREFOX_READY && FIREFOX_STORE_URL ? (
+        <a className="badge" href={FIREFOX_STORE_URL} target="_blank" rel="noreferrer">
+          <FirefoxGlyph />
+          <span>
+            <small>Add to</small>
+            <b>Firefox</b>
+          </span>
+        </a>
+      ) : (
+        <span className="badge disabled" title="Coming soon to Firefox Add-ons">
+          <FirefoxGlyph />
+          <span>
+            <small>Coming soon to</small>
+            <b>Firefox</b>
           </span>
         </span>
       )}
@@ -183,6 +209,20 @@ function ChromeGlyph() {
       <circle cx="12" cy="12" r="10.5" strokeWidth="1.6" />
       <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
       <path d="M12 7.5h9M12 16.5L7.5 8.6M12 16.5l4.5-7.9" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FirefoxGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor">
+      <circle cx="12" cy="12" r="9.5" strokeWidth="1.6" />
+      <path
+        d="M7 9.5c1-2.2 3-3.4 5.2-3.2M16.8 8.2c.9 1.1 1.4 2.6 1.2 4.2-.4 3-3 5.1-6 4.9-2.4-.2-4.3-2-4.6-4.2-.2-1.5.6-2.9 1.9-3.2 1.1-.2 2.1.4 2.4 1.4"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

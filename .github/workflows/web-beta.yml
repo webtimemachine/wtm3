@@ -1,12 +1,18 @@
 name: Deploy web → beta (beta.webtm.io)
 
-# Pull requests touching the web app deploy to beta.webtm.io for testing before
-# they merge to main (which then auto-ships to production). Also runnable manually.
+# Pull requests touching the web app or the browser extensions deploy to
+# beta.webtm.io for testing before they merge to main (which then auto-ships to
+# production). The beta build also bundles side-loadable extension downloads:
+#   /downloads/wtm-chrome.zip  — unzip + Load unpacked (Chrome blocks off-store installs)
+#   /downloads/wtm-firefox.xpi — AMO-signed (unlisted) one-click install
+# Also runnable manually.
 on:
   pull_request:
     paths:
       - "web/**"
       - "shared/**"
+      - "extension-chrome/**"
+      - "extension-firefox/**"
   workflow_dispatch: {}
 
 concurrency:
@@ -24,6 +30,25 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      # Stage side-loadable extension downloads into the web app's public/ dir so
+      # the Cloudflare deploy serves them at beta.webtm.io/downloads/*.
+      - name: Stage Chrome beta zip
+        run: |
+          pnpm --filter @wtm/extension-chrome run package
+          mkdir -p web/public/downloads
+          cp extension-chrome/wtm-chrome.zip web/public/downloads/wtm-chrome.zip
+
+      - name: Build + sign Firefox beta XPI (AMO unlisted)
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          # Unique version per build so AMO accepts each unlisted signing.
+          WTM_FIREFOX_VERSION: 3.0.0.${{ github.run_number }}
+        run: |
+          pnpm --filter @wtm/extension-firefox build
+          node extension-firefox/scripts/amo-publish.mjs unlisted web/public/downloads
+
       - run: pnpm --filter @wtm/web build
       - uses: cloudflare/wrangler-action@v3
         with:

@@ -9,6 +9,11 @@ build/
 
 # store packages
 *.zip
+*.xpi
+
+# beta extension downloads (built + signed in CI, served from beta.webtm.io)
+web/public/downloads/
+extension-firefox/web-ext-artifacts/
 
 # backups
 *.bak

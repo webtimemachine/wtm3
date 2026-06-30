@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Join the Beta — Web Time Machine</title>
-    <meta name="description" content="Become a Web Time Machine beta tester — iOS (TestFlight), Chrome, and the web beta." />
+    <meta name="description" content="Become a Web Time Machine beta tester — iOS (TestFlight), Chrome, Firefox, Android (APK), and the web beta." />
     <style>
       :root { color-scheme: dark; --bg:#0b1020; --bg2:#0e1426; --card:#141a2e; --line:#232b45;
         --fg:#e7ebf5; --muted:#8d97b5; --accent:#38bdf8; --accent-fg:#04121d; --danger:#f87171; }
@@ -50,6 +50,8 @@
         <select id="platform" name="platform">
           <option value="ios">iPhone / iPad (TestFlight)</option>
           <option value="chrome">Chrome extension</option>
+          <option value="firefox">Firefox extension</option>
+          <option value="android">Android (APK)</option>
           <option value="web">Web dashboard</option>
           <option value="any" selected>Any / not sure</option>
         </select>
@@ -71,8 +73,14 @@
         <a class="link" href="https://beta.webtm.io" target="_blank" rel="noreferrer">
           <span>🌐</span><span><b>Web beta</b><small>beta.webtm.io — live now, sign in with your account</small></span>
         </a>
-        <a id="chrome" class="link disabled" href="#" target="_blank" rel="noreferrer">
-          <span>🧩</span><span><b>Chrome extension</b><small id="chromenote">In review — coming soon</small></span>
+        <a class="link" href="/downloads/wtm-chrome.zip" download>
+          <span>🧩</span><span><b>Chrome extension</b><small>Download · unzip · chrome://extensions → Developer mode → Load unpacked</small></span>
+        </a>
+        <a class="link" href="/downloads/wtm-firefox.xpi">
+          <span>🦊</span><span><b>Firefox extension</b><small>Signed beta build — opens Firefox's install prompt directly</small></span>
+        </a>
+        <a class="link" href="https://github.com/webtimemachine/wtm3/releases/latest" target="_blank" rel="noreferrer">
+          <span>🤖</span><span><b>Android (APK)</b><small>Download the latest APK from GitHub releases</small></span>
         </a>
         <a id="tf" class="link disabled" href="#" target="_blank" rel="noreferrer">
           <span>📱</span><span><b>iOS TestFlight</b><small id="tfnote">Invite-based for now — request above</small></span>
@@ -91,15 +99,6 @@
         const tf = document.getElementById("tf");
         tf.href = TESTFLIGHT_URL; tf.classList.remove("disabled");
         document.getElementById("tfnote").textContent = "Open in TestFlight";
-      }
-
-      // Flip to true once v3 is live on the Chrome Web Store.
-      const CHROME_READY = false;
-      if (CHROME_READY) {
-        const ch = document.getElementById("chrome");
-        ch.href = "https://chromewebstore.google.com/detail/dfijieibikhpelmfhkjmihgfgpoeigch";
-        ch.classList.remove("disabled");
-        document.getElementById("chromenote").textContent = "Add from the Chrome Web Store";
       }
 
       const form = document.getElementById("f");

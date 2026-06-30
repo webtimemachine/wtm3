@@ -5,7 +5,9 @@
     register: "/auth/register",
     login: "/auth/login",
     me: "/auth/me",
+    settings: "/settings",
     nodes: "/nodes",
+    node: (id) => `/nodes/${id}`,
     syncPush: "/sync/push",
     syncPull: "/sync/pull",
     search: "/search",
@@ -69,12 +71,18 @@
     me() {
       return this.req("GET", Routes.me);
     }
+    updateSettings(body) {
+      return this.req("PATCH", Routes.settings, body);
+    }
     // --- nodes ---
     registerNode(req) {
       return this.req("POST", Routes.nodes, req);
     }
     listNodes() {
       return this.req("GET", Routes.nodes);
+    }
+    renameNode(id, name) {
+      return this.req("PATCH", Routes.node(id), { name });
     }
     // --- sync ---
     push(req) {
@@ -111,6 +119,23 @@
       await this.req("DELETE", Routes.page(id));
     }
   };
+
+  // ../shared/src/format.ts
+  function snippetHtml(s) {
+    const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return esc.replaceAll("&lt;mark&gt;", "<mark>").replaceAll("&lt;/mark&gt;", "</mark>");
+  }
+  function timeAgo(ms) {
+    const s = Math.round((Date.now() - ms) / 1e3);
+    if (s < 60) return "just now";
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const hr = Math.round(m / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const d = Math.round(hr / 24);
+    if (d < 30) return `${d}d ago`;
+    return new Date(ms).toLocaleDateString();
+  }
 
   // ../extension-chrome/src/config.ts
   var DEFAULT_BACKEND = "https://api.webtm.io";
@@ -153,16 +178,6 @@
     }
     for (const c of children) e.append(c);
     return e;
-  }
-  function timeAgo(ms) {
-    const s = Math.round((Date.now() - ms) / 1e3);
-    if (s < 60) return "just now";
-    const m = Math.round(s / 60);
-    if (m < 60) return `${m}m ago`;
-    const hr = Math.round(m / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const d = Math.round(hr / 24);
-    return `${d}d ago`;
   }
   async function client() {
     const st = await getState();
@@ -246,6 +261,7 @@
     ]);
     if (st.lastError) status.append(h("div", { class: "error" }, [st.lastError]));
     app.append(status);
+    app.append(await buildSettings(st));
     const search = h("input", { type: "search", placeholder: "Search your history\u2026" });
     app.append(h("div", { class: "section" }, [search]));
     const results = h("div", { class: "results" }, [h("div", { class: "empty" }, ["Loading recent pages\u2026"])]);
@@ -256,14 +272,100 @@
     });
     await loadRecent(results);
   }
+  async function buildSettings(st) {
+    const filterCb = h("input", { type: "checkbox" });
+    filterCb.checked = !!st.user?.filterSensitive;
+    filterCb.addEventListener("change", async () => {
+      filterCb.disabled = true;
+      try {
+        const u = await (await client()).updateSettings({ filterSensitive: filterCb.checked });
+        await setState({ user: u });
+      } catch {
+        filterCb.checked = !filterCb.checked;
+      } finally {
+        filterCb.disabled = false;
+      }
+    });
+    const daysInput = h("input", {
+      type: "number",
+      min: "1",
+      max: "3650",
+      value: String(st.user?.retentionDays ?? 90)
+    });
+    const daysBtn = h("button", { class: "secondary tiny" }, ["Save"]);
+    const daysMsg = h("span", { class: "hint" }, []);
+    daysBtn.addEventListener("click", async () => {
+      const d = parseInt(daysInput.value, 10);
+      if (!Number.isInteger(d) || d < 1 || d > 3650) {
+        daysMsg.textContent = "1\u20133650 days";
+        return;
+      }
+      daysBtn.disabled = true;
+      daysMsg.textContent = "";
+      try {
+        const u = await (await client()).updateSettings({ retentionDays: d });
+        await setState({ user: u });
+        daysMsg.textContent = "Saved";
+      } catch (e) {
+        daysMsg.textContent = e instanceof WtmApiError ? e.message : "Failed";
+      } finally {
+        daysBtn.disabled = false;
+      }
+    });
+    const children = [
+      h("summary", {}, ["Settings"]),
+      h("label", { class: "toggle" }, [filterCb, "Hide sensitive pages"]),
+      h("div", { class: "field" }, [
+        h("label", {}, ["History expiration (days)"]),
+        h("div", { class: "row" }, [daysInput, daysBtn, daysMsg])
+      ])
+    ];
+    if (st.deviceId) {
+      const did = st.deviceId;
+      let current = "";
+      try {
+        const { nodes } = await (await client()).listNodes();
+        current = nodes.find((n) => n.id === did)?.name ?? "";
+      } catch {
+      }
+      const nameInput = h("input", {
+        type: "text",
+        placeholder: "This device's name",
+        value: current
+      });
+      const nameBtn = h("button", { class: "secondary tiny" }, ["Rename"]);
+      const nameMsg = h("span", { class: "hint" }, []);
+      nameBtn.addEventListener("click", async () => {
+        const name = nameInput.value.trim();
+        if (!name) return;
+        nameBtn.disabled = true;
+        nameMsg.textContent = "";
+        try {
+          await (await client()).renameNode(did, name);
+          nameMsg.textContent = "Renamed";
+        } catch (e) {
+          nameMsg.textContent = e instanceof WtmApiError ? e.message : "Failed";
+        } finally {
+          nameBtn.disabled = false;
+        }
+      });
+      children.push(
+        h("div", { class: "field" }, [
+          h("label", {}, ["This device"]),
+          h("div", { class: "row" }, [nameInput, nameBtn, nameMsg])
+        ])
+      );
+    }
+    return h("details", { class: "section settings" }, children);
+  }
   function renderHit(p, results) {
-    const snippet = "snippet" in p && p.snippet ? h("div", { class: "snippet", html: p.snippet }) : null;
+    const snippet = "snippet" in p && p.snippet ? h("div", { class: "snippet", html: snippetHtml(p.snippet) }) : null;
     const summary = p.summary && (!("snippet" in p) || !p.snippet) ? h("div", { class: "summary" }, [p.summary]) : null;
     const del = h("button", { class: "secondary tiny", title: "Delete everywhere" }, ["Delete"]);
     del.addEventListener("click", async () => {
       del.disabled = true;
       try {
-        (await client()).deletePage(p.id);
+        await (await client()).deletePage(p.id);
         row.remove();
       } catch {
         del.disabled = false;
@@ -317,4 +419,3 @@
   }
   void renderApp();
 })();
-//# sourceMappingURL=popup.js.map

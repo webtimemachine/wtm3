@@ -5,7 +5,9 @@
     register: "/auth/register",
     login: "/auth/login",
     me: "/auth/me",
+    settings: "/settings",
     nodes: "/nodes",
+    node: (id) => `/nodes/${id}`,
     syncPush: "/sync/push",
     syncPull: "/sync/pull",
     search: "/search",
@@ -69,12 +71,18 @@
     me() {
       return this.req("GET", Routes.me);
     }
+    updateSettings(body) {
+      return this.req("PATCH", Routes.settings, body);
+    }
     // --- nodes ---
     registerNode(req) {
       return this.req("POST", Routes.nodes, req);
     }
     listNodes() {
       return this.req("GET", Routes.nodes);
+    }
+    renameNode(id, name) {
+      return this.req("PATCH", Routes.node(id), { name });
     }
     // --- sync ---
     push(req) {
@@ -128,6 +136,14 @@
   // ../extension-chrome/src/storage.ts
   var STATE_KEY = "wtm:state";
   var QUEUE_KEY = "wtm:queue";
+  var QUEUE_SOFT_BYTES = 4e6;
+  function byteSize(value) {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  }
+  function isQuotaError(e) {
+    const s = `${e?.message ?? e}`.toLowerCase();
+    return s.includes("quota") || s.includes("exceeded");
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
@@ -142,7 +158,19 @@
     return o[QUEUE_KEY] ?? [];
   }
   async function setQueue(q) {
-    await chrome.storage.local.set({ [QUEUE_KEY]: q });
+    let pages = q;
+    while (pages.length > 1 && byteSize(pages) > QUEUE_SOFT_BYTES) {
+      pages = pages.slice(Math.max(1, Math.ceil(pages.length * 0.1)));
+    }
+    for (; ; ) {
+      try {
+        await chrome.storage.local.set({ [QUEUE_KEY]: pages });
+        return;
+      } catch (e) {
+        if (!isQuotaError(e) || pages.length === 0) throw e;
+        pages = pages.length === 1 ? [] : pages.slice(Math.max(1, Math.ceil(pages.length * 0.25)));
+      }
+    }
   }
   async function enqueue(pages) {
     const q = await getQueue();
@@ -202,8 +230,7 @@
     try {
       const st = await getState();
       if (!st.token || !st.baseUrl) return;
-      let queue = await getQueue();
-      if (!queue.length) return;
+      if (!(await getQueue()).length) return;
       const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
       let deviceId = st.deviceId;
       if (!deviceId) {
@@ -211,11 +238,14 @@
         deviceId = node.id;
         await setState({ deviceId });
       }
-      while (queue.length) {
-        const batch = queue.slice(0, BATCH);
+      while (true) {
+        const current = await getQueue();
+        if (!current.length) break;
+        const batch = current.slice(0, BATCH);
+        const acked = new Set(batch.map((p) => p.id));
         await client.push({ deviceId, pages: batch });
-        queue = queue.slice(batch.length);
-        await setQueue(queue);
+        const after = await getQueue();
+        await setQueue(after.filter((p) => !acked.has(p.id)));
       }
       await setState({ lastSync: Date.now(), lastError: null });
     } catch (e) {
@@ -233,8 +263,8 @@
     if (PLATFORM === "safari-ios") {
       return /iPad/.test(ua) ? "Safari on iPad" : "Safari on iPhone";
     }
+    if (PLATFORM === "firefox-android") return "Firefox on Android";
     const os = /Macintosh|Mac OS/.test(ua) ? "macOS" : /Windows/.test(ua) ? "Windows" : /CrOS/.test(ua) ? "ChromeOS" : /Linux|X11/.test(ua) ? "Linux" : "Chrome";
     return `Chrome on ${os}`;
   }
 })();
-//# sourceMappingURL=background.js.map

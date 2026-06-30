@@ -13,12 +13,15 @@ import type {
   UserInfo,
 } from "@wtm/shared";
 import type { Env, Vars } from "./env";
-import { hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
+import { DUMMY_PASSWORD_HASH, hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
 import { contentHash, reserveSeq, rowToPage, textKey, type PageRow } from "./db";
 import { toMatchQuery } from "./search";
 import { summarizePages } from "./summary";
 
 const DAY_MS = 86_400_000;
+/** Server-side caps for /sync/push (defense against oversized/abusive payloads). */
+const MAX_TEXT_CHARS = 200_000;
+const MAX_ITEMS_PER_PUSH = 200;
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -108,15 +111,13 @@ app.post("/auth/login", async (c) => {
       retention_days: number;
     }>();
 
-  // Always run a verify to keep timing roughly constant for unknown emails.
-  const ok =
-    !!row &&
-    (await verifyPassword(password, {
-      hash: row.password_hash,
-      salt: row.password_salt,
-      iterations: row.iterations,
-    }));
-  if (!row || !ok)
+  // Always run a real PBKDF2 verify (decoy hash for unknown emails) so response
+  // timing doesn't reveal whether the email exists.
+  const stored = row
+    ? { hash: row.password_hash, salt: row.password_salt, iterations: row.iterations }
+    : DUMMY_PASSWORD_HASH;
+  const passwordOk = await verifyPassword(password, stored);
+  if (!row || !passwordOk)
     return c.json({ error: "invalid_credentials", message: "Incorrect email or password." }, 401);
 
   const token = await signToken(c.env.JWT_SECRET, { userId: row.id, email: row.email });
@@ -199,10 +200,30 @@ app.get("/nodes", async (c) => {
 app.post("/sync/push", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json().catch(() => null)) as SyncPushRequest | null;
-  const pages: CapturedPage[] = Array.isArray(body?.pages) ? body!.pages : [];
-  const deletes: string[] = Array.isArray(body?.deletes) ? body!.deletes : [];
-  const deviceId = typeof body?.deviceId === "string" ? body!.deviceId : null;
   const now = Date.now();
+  const deviceId = typeof body?.deviceId === "string" ? body!.deviceId.slice(0, 128) : null;
+
+  // Validate + clamp client input (don't trust payload size/shape).
+  const rawPages = Array.isArray(body?.pages) ? body!.pages.slice(0, MAX_ITEMS_PER_PUSH) : [];
+  const pages: CapturedPage[] = [];
+  for (const p of rawPages) {
+    if (!p || typeof p.id !== "string" || p.id.length < 1 || p.id.length > 128) continue;
+    if (typeof p.url !== "string" || p.url.length > 2048 || !/^https?:\/\//i.test(p.url)) continue;
+    const vt = Number(p.visitedAt);
+    pages.push({
+      id: p.id,
+      url: p.url,
+      title: typeof p.title === "string" ? p.title.slice(0, 1024) : "(untitled)",
+      visitedAt: Number.isFinite(vt) ? Math.min(Math.max(vt, 0), now + DAY_MS) : now,
+      text: typeof p.text === "string" ? p.text.slice(0, MAX_TEXT_CHARS) : "",
+      excerpt: typeof p.excerpt === "string" ? p.excerpt.slice(0, 4096) : null,
+      byline: typeof p.byline === "string" ? p.byline.slice(0, 512) : null,
+      lang: typeof p.lang === "string" ? p.lang.slice(0, 32) : null,
+    });
+  }
+  const deletes: string[] = (Array.isArray(body?.deletes) ? body!.deletes : [])
+    .filter((d): d is string => typeof d === "string" && d.length >= 1 && d.length <= 128)
+    .slice(0, MAX_ITEMS_PER_PUSH);
 
   if (deviceId) {
     await c.env.DB.prepare("UPDATE nodes SET last_seen_at = ?1 WHERE id = ?2 AND user_id = ?3")
@@ -259,7 +280,8 @@ app.post("/sync/push", async (c) => {
            deleted=0, seq=excluded.seq, expires_at=excluded.expires_at, updated_at=excluded.updated_at,
            summary = CASE WHEN pages.content_hash IS NOT excluded.content_hash THEN NULL ELSE pages.summary END,
            summary_status = CASE WHEN pages.content_hash IS NOT excluded.content_hash THEN 'pending' ELSE pages.summary_status END,
-           content_hash = excluded.content_hash`,
+           content_hash = excluded.content_hash
+         WHERE pages.user_id = excluded.user_id`,
       ).bind(
         p.id,
         userId,
@@ -278,7 +300,7 @@ app.post("/sync/push", async (c) => {
         expiresAt,
         now,
       ),
-      c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1").bind(p.id),
+      c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(p.id, userId),
       c.env.DB.prepare(
         "INSERT INTO pages_fts (title, body, url, page_id, user_id) VALUES (?1,?2,?3,?4,?5)",
       ).bind(p.title || "", p.text || "", p.url, p.id, userId),
@@ -291,7 +313,7 @@ app.post("/sync/push", async (c) => {
       c.env.DB.prepare(
         "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
       ).bind(seq, now, id, userId),
-      c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1").bind(id),
+      c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
     );
   }
 
@@ -307,7 +329,13 @@ app.post("/sync/push", async (c) => {
   }
 
   // Generate summaries in the background; this bumps seq further as they land.
-  const toSummarize = pages.map((p) => ({ id: p.id, title: p.title, url: p.url, text: p.text }));
+  const toSummarize = pages.map((p) => ({
+    id: p.id,
+    title: p.title,
+    url: p.url,
+    text: p.text,
+    contentHash: contentHash(p.text || ""),
+  }));
   if (toSummarize.length) {
     c.executionCtx.waitUntil(summarizePages(c.env, userId, toSummarize));
   }
@@ -449,7 +477,7 @@ app.delete("/pages/:id", async (c) => {
     c.env.DB.prepare(
       "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
     ).bind(seq, Date.now(), id, userId),
-    c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1").bind(id),
+    c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
   ]);
   c.executionCtx.waitUntil(c.env.BUCKET.delete(textKey(userId, id)).catch(() => {}));
 
@@ -498,7 +526,7 @@ async function runRetention(env: Env): Promise<number> {
           env.DB.prepare(
             "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
           ).bind(seq, now, id, userId),
-          env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1").bind(id),
+          env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
         );
       }
       await env.DB.batch(stmts);

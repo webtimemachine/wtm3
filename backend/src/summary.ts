@@ -43,23 +43,19 @@ export async function summarizeText(
 export async function summarizePages(
   env: Env,
   userId: string,
-  pages: { id: string; title: string; url: string; text: string }[],
+  pages: { id: string; title: string; url: string; text: string; contentHash: string }[],
 ): Promise<void> {
   for (const p of pages) {
-    if (!p.text) {
-      await env.DB.prepare(
-        "UPDATE pages SET summary_status='skipped' WHERE id=?1 AND user_id=?2 AND deleted=0",
-      )
-        .bind(p.id, userId)
-        .run();
-      continue;
-    }
-    const summary = await summarizeText(env, p.title, p.url, p.text);
+    const summary = p.text ? await summarizeText(env, p.title, p.url, p.text) : null;
+    const status = !p.text ? "skipped" : summary ? "ready" : "error";
     const seq = await reserveSeq(env, userId, 1);
+    // Stale-write guard: only apply if the page still holds the content we summarized.
+    // A newer recapture changes content_hash (and resets summary_status to 'pending'),
+    // so an older AI result can't clobber it. Bumping seq lets clients see the status.
     await env.DB.prepare(
-      "UPDATE pages SET summary=?1, summary_status=?2, seq=?3, updated_at=?4 WHERE id=?5 AND user_id=?6 AND deleted=0",
+      "UPDATE pages SET summary=?1, summary_status=?2, seq=?3, updated_at=?4 WHERE id=?5 AND user_id=?6 AND deleted=0 AND content_hash=?7",
     )
-      .bind(summary, summary ? "ready" : "error", seq, Date.now(), p.id, userId)
+      .bind(summary, status, seq, Date.now(), p.id, userId, p.contentHash)
       .run();
   }
 }

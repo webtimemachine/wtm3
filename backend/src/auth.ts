@@ -45,6 +45,13 @@ export interface PasswordHash {
   iterations: number;
 }
 
+/** Decoy hash so login runs an equivalent PBKDF2 even for unknown emails (timing). */
+export const DUMMY_PASSWORD_HASH: PasswordHash = {
+  hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  salt: "AAAAAAAAAAAAAAAAAAAAAA==",
+  iterations: PBKDF2_ITERATIONS,
+};
+
 export async function hashPassword(password: string): Promise<PasswordHash> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const bits = await deriveBits(password, salt, PBKDF2_ITERATIONS);

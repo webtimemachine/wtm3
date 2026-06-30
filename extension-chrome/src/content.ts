@@ -31,13 +31,20 @@ function attempt(): void {
   }
 }
 
-setTimeout(attempt, CAPTURE_DELAY);
+// Bounded retries so late-rendering / SPA pages get captured once content lands.
+// attempt() no-ops once this URL is captured, so the extra timers are cheap.
+const RETRY_DELAYS = [CAPTURE_DELAY, 3500, 7000, 12000];
+function scheduleCaptures(): void {
+  for (const d of RETRY_DELAYS) setTimeout(attempt, d);
+}
+scheduleCaptures();
 
-// Single-page-app navigations don't reload the content script; poll the URL.
+// Single-page-app navigations don't reload the content script; poll the URL and
+// re-run the bounded attempts when the route changes.
 let href = location.href;
 setInterval(() => {
   if (location.href !== href) {
     href = location.href;
-    setTimeout(attempt, CAPTURE_DELAY);
+    scheduleCaptures();
   }
 }, POLL_MS);

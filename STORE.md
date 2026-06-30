@@ -125,10 +125,58 @@ pnpm --filter @wtm/extension-chrome package   # -> extension-chrome/wtm-chrome.z
 
 ---
 
-## After Chrome is published
+## We update the EXISTING extension, not a new listing
 
-Set the live URL so the dashboard's "Coming soon to Chrome" badge becomes a real
-**Add to Chrome** button:
+There is already a published extension, **`dfijieibikhpelmfhkjmihgfgpoeigch`** (was v1.0).
+We push v3 onto it (keeps existing users/reviews); the site's "Add to Chrome" already
+points at it. The throwaway new listing `hfelig…` was archived.
 
-1. Edit `web/src/links.ts` → `CHROME_STORE_URL = "https://chromewebstore.google.com/detail/<extension-id>"`.
-2. `pnpm --filter @wtm/web build && (cd web && wrangler deploy)` (with the CF env from `.env`).
+## Reviewer / tester instructions (CWS dashboard "Account" tab)
+
+The extension requires sign-in, so provide a test account + steps:
+
+```
+This is a Safari/Chrome extension that captures the readable text of pages you visit
+and syncs it to your account for full-text search + one-line AI summaries.
+
+To test:
+1. After install, click the Web Time Machine toolbar icon.
+2. The backend URL is prefilled (https://api.webtm.io). Sign in with the test account below.
+3. Browse a few sites, reopen the popup: captured pages appear with summaries and are
+   full-text searchable; click a result to revisit. The web dashboard at https://webtm.io
+   shows the same history.
+
+Test account (pre-seeded with sample pages):
+  email:    review@webtm.io
+  password: WtmReview2026!
+```
+
+## Chrome Web Store API automation (one-command updates)
+
+One-time setup (so future `dfiji…` updates are a single command):
+
+1. Google Cloud Console → create/pick a project → **enable the "Chrome Web Store API"**.
+2. **OAuth consent screen**: External, add yourself as a Test user, scope
+   `.../auth/chromewebstore`.
+3. **Credentials → Create OAuth client ID → Web application**; add redirect URI
+   `http://localhost`. Note the **client ID + secret**.
+4. Put them in `/Users/posix4e/src/.env`:
+   ```
+   CWS_CLIENT_ID=...
+   CWS_CLIENT_SECRET=...
+   CWS_ITEM_ID=dfijieibikhpelmfhkjmihgfgpoeigch
+   ```
+5. Get a refresh token (cross-device friendly — copy the code from the failed localhost redirect):
+   ```
+   set -a; . /Users/posix4e/src/.env; set +a
+   pnpm --filter @wtm/extension-chrome cws:auth-url        # open URL, approve, copy ?code=…
+   pnpm --filter @wtm/extension-chrome cws:exchange -- <code>   # prints CWS_REFRESH_TOKEN
+   ```
+   Add the printed `CWS_REFRESH_TOKEN=…` to `.env`.
+
+Then publish (builds + zips + uploads + publishes to `dfiji…`):
+```
+set -a; . /Users/posix4e/src/.env; set +a
+pnpm --filter @wtm/extension-chrome cws:publish
+```
+(`cws-publish.mjs upload` uploads without publishing; `publish` publishes the last upload.)

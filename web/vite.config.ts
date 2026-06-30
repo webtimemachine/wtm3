@@ -11,6 +11,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: "@wtm/shared/api", replacement: r("../shared/src/api.ts") },
+      { find: "@wtm/shared/format", replacement: r("../shared/src/format.ts") },
       { find: "@wtm/shared", replacement: r("../shared/src/index.ts") },
     ],
   },

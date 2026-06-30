@@ -59,8 +59,7 @@ async function flush(): Promise<void> {
   try {
     const st = await getState();
     if (!st.token || !st.baseUrl) return;
-    let queue = await getQueue();
-    if (!queue.length) return;
+    if (!(await getQueue()).length) return;
 
     const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
 
@@ -71,11 +70,16 @@ async function flush(): Promise<void> {
       await setState({ deviceId });
     }
 
-    while (queue.length) {
-      const batch = queue.slice(0, BATCH);
+    // Drain in batches. Re-read storage after each push and remove only the
+    // acked ids, so pages enqueued during an in-flight upload aren't clobbered.
+    while (true) {
+      const current = await getQueue();
+      if (!current.length) break;
+      const batch = current.slice(0, BATCH);
+      const acked = new Set(batch.map((p) => p.id));
       await client.push({ deviceId, pages: batch });
-      queue = queue.slice(batch.length);
-      await setQueue(queue);
+      const after = await getQueue();
+      await setQueue(after.filter((p) => !acked.has(p.id)));
     }
     await setState({ lastSync: Date.now(), lastError: null });
   } catch (e) {

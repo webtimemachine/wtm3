@@ -7,7 +7,10 @@
     "build": "node build.mjs",
     "package": "node build.mjs && cd dist && zip -qr ../wtm-chrome.zip . -x '*.map' && cd .. && echo 'packaged -> extension-chrome/wtm-chrome.zip'",
     "icons": "python3 scripts/gen-icons.py",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cws:auth-url": "node scripts/cws-auth.mjs url",
+    "cws:exchange": "node scripts/cws-auth.mjs exchange",
+    "cws:publish": "pnpm run package && node scripts/cws-publish.mjs deploy"
   },
   "dependencies": {
     "@wtm/shared": "workspace:*"

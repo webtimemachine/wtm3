@@ -10,6 +10,9 @@ build/
 # store packages
 *.zip
 
+# backups
+*.bak
+
 # wrangler / cloudflare
 .wrangler/
 .dev.vars
@@ -19,6 +22,8 @@ build/
 .env
 .env.*
 !.env.example
+*.p8
+AuthKey_*
 
 # logs
 *.log

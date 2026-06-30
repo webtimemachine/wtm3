@@ -12,7 +12,7 @@ await mkdir(outdir, { recursive: true });
 
 const common = {
   bundle: true,
-  sourcemap: true,
+  sourcemap: false, // no source maps in the shipped Safari extension resources
   target: "safari16",
   logLevel: "info",
   define: { __WTM_PLATFORM__: JSON.stringify("safari-ios") },

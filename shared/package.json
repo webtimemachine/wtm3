@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./capture": "./src/capture.ts",
-    "./api": "./src/api.ts"
+    "./api": "./src/api.ts",
+    "./format": "./src/format.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

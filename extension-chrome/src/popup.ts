@@ -1,5 +1,6 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
 import type { PageRecord, SearchHit } from "@wtm/shared";
+import { snippetHtml, timeAgo } from "@wtm/shared/format";
 import { DEFAULT_BACKEND } from "./config";
 import { getQueue, getState, setState } from "./storage";
 
@@ -19,17 +20,6 @@ function h<K extends keyof HTMLElementTagNameMap>(
   }
   for (const c of children) e.append(c);
   return e;
-}
-
-function timeAgo(ms: number): string {
-  const s = Math.round((Date.now() - ms) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const hr = Math.round(m / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const d = Math.round(hr / 24);
-  return `${d}d ago`;
 }
 
 async function client(): Promise<WtmClient> {
@@ -153,7 +143,8 @@ async function renderApp(): Promise<void> {
 }
 
 function renderHit(p: PageRecord | SearchHit, results: HTMLElement): HTMLElement {
-  const snippet = "snippet" in p && p.snippet ? h("div", { class: "snippet", html: p.snippet }) : null;
+  const snippet =
+    "snippet" in p && p.snippet ? h("div", { class: "snippet", html: snippetHtml(p.snippet) }) : null;
   const summary =
     p.summary && (!("snippet" in p) || !p.snippet) ? h("div", { class: "summary" }, [p.summary]) : null;
 
@@ -161,7 +152,7 @@ function renderHit(p: PageRecord | SearchHit, results: HTMLElement): HTMLElement
   del.addEventListener("click", async () => {
     del.disabled = true;
     try {
-      (await client()).deletePage(p.id);
+      await (await client()).deletePage(p.id);
       row.remove();
     } catch {
       del.disabled = false;

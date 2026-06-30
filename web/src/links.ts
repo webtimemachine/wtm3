@@ -3,6 +3,6 @@
 // CHROME_STORE_URL is filled in once the Chrome Web Store item is published.
 
 export const APP_STORE_URL = "https://apps.apple.com/app/id6477404511";
-export const CHROME_STORE_URL = "https://chromewebstore.google.com/detail/hfeligcbkfgiljailpjdobbneajkmojf";
+export const CHROME_STORE_URL = "https://chromewebstore.google.com/detail/dfijieibikhpelmfhkjmihgfgpoeigch";
 export const GITHUB_URL = "https://github.com/webtimemachine/wtm3";
 export const PRIVACY_URL = "/privacy";

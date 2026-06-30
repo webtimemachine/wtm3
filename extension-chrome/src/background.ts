@@ -99,6 +99,7 @@ function deviceName(): string {
   if (PLATFORM === "safari-ios") {
     return /iPad/.test(ua) ? "Safari on iPad" : "Safari on iPhone";
   }
+  if (PLATFORM === "firefox-android") return "Firefox on Android";
   const os = /Macintosh|Mac OS/.test(ua)
     ? "macOS"
     : /Windows/.test(ua)

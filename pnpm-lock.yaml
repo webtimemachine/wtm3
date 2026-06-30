@@ -50,6 +50,19 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  extension-firefox:
+    dependencies:
+      '@wtm/extension-chrome':
+        specifier: workspace:*
+        version: link:../extension-chrome
+      '@wtm/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      esbuild:
+        specifier: ^0.24.2
+        version: 0.24.2
+
   extension-safari:
     dependencies:
       '@wtm/extension-chrome':

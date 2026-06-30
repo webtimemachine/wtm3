@@ -10,7 +10,7 @@ import {
   timeAgo,
   type Session,
 } from "./session";
-import { APP_STORE_URL, CHROME_STORE_URL, GITHUB_URL, PRIVACY_URL } from "./links";
+import { APP_STORE_URL, CHROME_READY, CHROME_STORE_URL, GITHUB_URL, IOS_READY, PRIVACY_URL } from "./links";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
@@ -107,14 +107,24 @@ function Auth({ onAuthed }: { onAuthed: (s: Session) => void }) {
 function DownloadBadges() {
   return (
     <div className="badges">
-      <a className="badge" href={APP_STORE_URL} target="_blank" rel="noreferrer">
-        <AppleGlyph />
-        <span>
-          <small>Download on the</small>
-          <b>App Store</b>
+      {IOS_READY ? (
+        <a className="badge" href={APP_STORE_URL} target="_blank" rel="noreferrer">
+          <AppleGlyph />
+          <span>
+            <small>Download on the</small>
+            <b>App Store</b>
+          </span>
+        </a>
+      ) : (
+        <span className="badge disabled" title="Coming soon to the App Store">
+          <AppleGlyph />
+          <span>
+            <small>Coming soon to</small>
+            <b>App Store</b>
+          </span>
         </span>
-      </a>
-      {CHROME_STORE_URL ? (
+      )}
+      {CHROME_READY && CHROME_STORE_URL ? (
         <a className="badge" href={CHROME_STORE_URL} target="_blank" rel="noreferrer">
           <ChromeGlyph />
           <span>

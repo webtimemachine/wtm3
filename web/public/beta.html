@@ -32,7 +32,7 @@
         border-radius:12px; text-decoration:none; color:var(--fg); margin-bottom:10px; background:var(--bg2); }
       .link:hover { border-color: var(--accent); }
       .link b { display:block; } .link small { color:var(--muted); }
-      .link.disabled { opacity:.55; }
+      .link.disabled { opacity:.55; pointer-events:none; }
       a.home { color:var(--muted); font-size:13px; text-decoration:none; } a.home:hover { color:var(--accent); }
     </style>
   </head>
@@ -71,8 +71,8 @@
         <a class="link" href="https://beta.webtm.io" target="_blank" rel="noreferrer">
           <span>🌐</span><span><b>Web beta</b><small>beta.webtm.io — live now, sign in with your account</small></span>
         </a>
-        <a class="link" href="https://chromewebstore.google.com/detail/dfijieibikhpelmfhkjmihgfgpoeigch" target="_blank" rel="noreferrer">
-          <span>🧩</span><span><b>Chrome extension</b><small>Add from the Chrome Web Store</small></span>
+        <a id="chrome" class="link disabled" href="#" target="_blank" rel="noreferrer">
+          <span>🧩</span><span><b>Chrome extension</b><small id="chromenote">In review — coming soon</small></span>
         </a>
         <a id="tf" class="link disabled" href="#" target="_blank" rel="noreferrer">
           <span>📱</span><span><b>iOS TestFlight</b><small id="tfnote">Invite-based for now — request above</small></span>
@@ -91,6 +91,15 @@
         const tf = document.getElementById("tf");
         tf.href = TESTFLIGHT_URL; tf.classList.remove("disabled");
         document.getElementById("tfnote").textContent = "Open in TestFlight";
+      }
+
+      // Flip to true once v3 is live on the Chrome Web Store.
+      const CHROME_READY = false;
+      if (CHROME_READY) {
+        const ch = document.getElementById("chrome");
+        ch.href = "https://chromewebstore.google.com/detail/dfijieibikhpelmfhkjmihgfgpoeigch";
+        ch.classList.remove("disabled");
+        document.getElementById("chromenote").textContent = "Add from the Chrome Web Store";
       }
 
       const form = document.getElementById("f");

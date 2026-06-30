@@ -122,7 +122,9 @@
           if (r.ok) {
             form.querySelectorAll("input,select,textarea,button").forEach((el) => (el.style.display = "none"));
             msg.className = "msg ok";
-            msg.textContent = "✓ You're on the list — we'll email a beta invite to " + payload.email + ".";
+            msg.textContent =
+              "✓ You're on the list (" + payload.email + "). Jump in right now with the links below — " +
+              "we'll reach out for anything that needs a manual invite.";
           } else {
             const j = await r.json().catch(() => ({}));
             msg.className = "msg err";

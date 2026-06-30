@@ -386,7 +386,7 @@ app.get("/search", async (c) => {
             snippet(pages_fts, 1, '<mark>', '</mark>', '…', 16) AS snippet,
             bm25(pages_fts, 5.0, 1.0) AS rank
      FROM pages_fts
-     JOIN pages p ON p.id = pages_fts.page_id
+     JOIN pages p ON p.id = pages_fts.page_id AND p.user_id = pages_fts.user_id
      WHERE pages_fts MATCH ?1 AND p.user_id = ?2 AND p.deleted = 0
      ORDER BY rank
      LIMIT ?3 OFFSET ?4`,
@@ -397,7 +397,7 @@ app.get("/search", async (c) => {
   const total =
     (await c.env.DB.prepare(
       `SELECT count(*) AS n FROM pages_fts
-       JOIN pages p ON p.id = pages_fts.page_id
+       JOIN pages p ON p.id = pages_fts.page_id AND p.user_id = pages_fts.user_id
        WHERE pages_fts MATCH ?1 AND p.user_id = ?2 AND p.deleted = 0`,
     )
       .bind(match, userId)

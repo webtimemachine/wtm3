@@ -9,6 +9,7 @@
   --accent-fg: #04121d;
   --danger: #f87171;
   --maxw: 760px;
+  --app-header-h: 63px; /* height of the sticky app header; day headers stick just below */
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
@@ -105,7 +106,24 @@ header .email { color: var(--muted); font-size: 13px; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }
-.more { display: block; margin: 20px auto; background: transparent; border: 1px solid var(--line); color: var(--fg); }
+
+/* Sticky day headers in the timeline (stick just under the app header) */
+.day-header {
+  position: sticky; top: var(--app-header-h); z-index: 4;
+  margin: 0; padding: 10px 4px 6px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.sentinel { height: 1px; }
+
+/* Floating back-to-latest button */
+.to-top {
+  position: fixed; right: 20px; bottom: 24px; z-index: 20;
+  padding: 10px 16px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-fg); font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); cursor: pointer; border: 0;
+}
+.to-top:hover { filter: brightness(1.05); }
 
 /* Modal */
 .modal-backdrop {

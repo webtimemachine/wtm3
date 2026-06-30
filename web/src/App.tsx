@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WtmApiError } from "@wtm/shared/api";
 import type { PageRecord, SearchHit } from "@wtm/shared";
 import {
@@ -170,6 +170,40 @@ function ChromeGlyph() {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+const DAY_MS_LOCAL = 86_400_000;
+type Item = PageRecord | SearchHit;
+
+function dayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function dayLabel(ms: number): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const that = new Date(ms);
+  that.setHours(0, 0, 0, 0);
+  const diff = Math.round((today.getTime() - that.getTime()) / DAY_MS_LOCAL);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return new Date(ms).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+/** Group already-ordered (newest-first) items into consecutive day buckets. */
+function groupByDay(items: Item[]): { key: string; label: string; pages: Item[] }[] {
+  const groups: { key: string; label: string; pages: Item[] }[] = [];
+  for (const p of items) {
+    const key = dayKey(p.visitedAt);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.pages.push(p);
+    else groups.push({ key, label: dayLabel(p.visitedAt), pages: [p] });
+  }
+  return groups;
+}
+
 function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const client = useMemo(() => clientFor(session.baseUrl, session.token), [session]);
 
@@ -180,10 +214,12 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [textFor, setTextFor] = useState<PageRecord | null>(null);
+  const [showTop, setShowTop] = useState(false);
   const reqId = useRef(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const loadRecent = useCallback(
-    async (before?: number) => {
+    async (before?: number, append = false) => {
       const id = ++reqId.current;
       setLoading(true);
       setError("");
@@ -191,7 +227,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         const res = await client.recent({ limit: 30, before });
         if (id !== reqId.current) return;
         setTotal(null);
-        setItems((prev) => (before ? [...prev, ...res.pages] : res.pages));
+        setItems((prev) => (append ? [...prev, ...res.pages] : res.pages));
         setCursor(res.pages.length === 30 ? res.cursor : null);
       } catch (e) {
         if (id === reqId.current) handleErr(e);
@@ -239,6 +275,40 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     }, 220);
     return () => clearTimeout(t);
   }, [query, runSearch, loadRecent]);
+
+  // infinite scroll: load older pages when the bottom sentinel comes into view
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || query.trim() || cursor == null) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !loading) void loadRecent(cursor, true);
+      },
+      { rootMargin: "300px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [cursor, loading, query, loadRecent]);
+
+  // show the "↑ Latest" button once scrolled down a bit
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setShowTop(window.scrollY > 800);
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function backToLatest() {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setQuery("");
+    void loadRecent(undefined, false);
+  }
 
   async function del(id: string) {
     try {
@@ -288,17 +358,29 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             {query.trim() ? `No matches for “${query.trim()}”.` : "No pages captured yet."}
           </div>
         )}
-        {items.map((p) => (
-          <PageCard key={p.id} page={p} onDelete={() => del(p.id)} onViewText={() => setTextFor(p)} />
-        ))}
+        {query.trim()
+          ? items.map((p) => (
+              <PageCard key={p.id} page={p} onDelete={() => del(p.id)} onViewText={() => setTextFor(p)} />
+            ))
+          : groupByDay(items).map((g) => (
+              <Fragment key={g.key}>
+                <h2 className="day-header">{g.label}</h2>
+                {g.pages.map((p) => (
+                  <PageCard key={p.id} page={p} onDelete={() => del(p.id)} onViewText={() => setTextFor(p)} />
+                ))}
+              </Fragment>
+            ))}
 
-        {loading && <div className="empty">Loading…</div>}
-        {!query.trim() && cursor != null && !loading && (
-          <button className="more" onClick={() => loadRecent(cursor)}>
-            Load older
-          </button>
-        )}
+        {loading && <div className="empty">{items.length ? "Loading older…" : "Loading…"}</div>}
+        {/* infinite-scroll trigger (timeline mode); inert once cursor is null */}
+        {!query.trim() && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
       </main>
+
+      {showTop && (
+        <button className="to-top" onClick={backToLatest} title="Back to the latest pages">
+          ↑ Latest
+        </button>
+      )}
 
       {textFor && <TextModal client={client} page={textFor} onClose={() => setTextFor(null)} />}
     </div>

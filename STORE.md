@@ -69,13 +69,15 @@ for tracking. Not shared with third parties (other than the hosting provider).
 
 ## Chrome Web Store
 
-### Package
+### Browser extension packages
 
 ```bash
 pnpm --filter @wtm/extension-chrome package   # -> extension-chrome/wtm-chrome.zip
+pnpm --filter @wtm/extension-firefox package  # -> extension-firefox/wtm-firefox-android.zip
 ```
 
-(MV3, version 3.0.0, source maps stripped.)
+Chrome is MV3. Firefox Android is MV2 for current Android add-on compatibility.
+Both packages strip source maps.
 
 ### Create the item
 
@@ -180,3 +182,15 @@ set -a; . /Users/posix4e/src/.env; set +a
 pnpm --filter @wtm/extension-chrome cws:publish
 ```
 (`cws-publish.mjs upload` uploads without publishing; `publish` publishes the last upload.)
+
+## Browser extension beta / release automation
+
+- Pull requests that touch extension or shared code run **Package browser extensions
+  for PR testing**. The workflow uploads `wtm-chrome.zip` and
+  `wtm-firefox-android.zip` together as a beta artifact.
+- Tags matching `browser-v*` or `chrome-v*` run **Browser extension release**.
+  That workflow packages Chrome and Firefox Android side by side, uploads both
+  release artifacts, and publishes the Chrome package to the existing Chrome Web
+  Store item.
+- Firefox Android is packaged for manual AMO submission/testing until Mozilla
+  publishing automation is added.

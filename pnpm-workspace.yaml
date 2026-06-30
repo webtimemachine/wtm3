@@ -2,5 +2,6 @@ packages:
   - shared
   - backend
   - extension-chrome
+  - extension-firefox
   - extension-safari
   - web

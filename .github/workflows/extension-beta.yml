@@ -1,0 +1,41 @@
+name: Package browser extensions for PR testing
+
+# Pull requests touching extension code produce side-by-side Chrome and Firefox
+# Android zip artifacts so beta testers can load exactly what would ship.
+on:
+  pull_request:
+    paths:
+      - "extension-chrome/**"
+      - "extension-firefox/**"
+      - "shared/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/extension-beta.yml"
+      - ".github/workflows/chrome-release.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: extension-beta-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wtm/extension-chrome run package
+      - run: pnpm --filter @wtm/extension-firefox run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension-pr-packages
+          path: |
+            extension-chrome/wtm-chrome.zip
+            extension-firefox/wtm-firefox-android.zip
+          if-no-files-found: error

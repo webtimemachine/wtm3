@@ -3,7 +3,7 @@ import type { Platform, UserInfo } from "@wtm/shared";
 /** Default backend (production custom domain). Overridable in the popup. */
 export const DEFAULT_BACKEND = "https://api.webtm.io";
 
-// Injected at build time via esbuild `define` ("chrome" or "safari-ios").
+// Injected at build time via esbuild `define`.
 declare const __WTM_PLATFORM__: string | undefined;
 export const PLATFORM: Platform =
   typeof __WTM_PLATFORM__ !== "undefined" ? __WTM_PLATFORM__ : "chrome";

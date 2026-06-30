@@ -129,6 +129,43 @@ app.post("/auth/login", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Beta tester signup (public — the "Join the beta" form)
+// ---------------------------------------------------------------------------
+
+app.post("/beta/signup", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  // Honeypot: real users never fill these hidden fields; bots do. Pretend success.
+  if (body?.website || body?.company) return c.json({ ok: true });
+
+  const email = normalizeEmail(body?.email);
+  if (!email) return c.json({ error: "invalid_email", message: "A valid email is required." }, 400);
+  const allowed = ["ios", "chrome", "web", "any"];
+  const platform = allowed.includes(body?.platform) ? body.platform : "any";
+  const note = typeof body?.note === "string" ? body.note.slice(0, 500) : null;
+  const ip = c.req.header("CF-Connecting-IP") || "";
+  const now = Date.now();
+
+  // Light per-IP rate limit: at most 5 signups/minute from one address.
+  if (ip) {
+    const recent = await c.env.DB.prepare(
+      "SELECT count(*) AS n FROM beta_signups WHERE ip = ?1 AND created_at > ?2",
+    )
+      .bind(ip, now - 60_000)
+      .first<{ n: number }>();
+    if ((recent?.n ?? 0) >= 5)
+      return c.json({ error: "rate_limited", message: "Too many signups — try again shortly." }, 429);
+  }
+
+  await c.env.DB.prepare(
+    `INSERT INTO beta_signups (id, email, platform, note, ip, created_at) VALUES (?1,?2,?3,?4,?5,?6)
+     ON CONFLICT(email) DO UPDATE SET platform=excluded.platform, note=excluded.note, created_at=excluded.created_at`,
+  )
+    .bind(crypto.randomUUID(), email, platform, note, ip, now)
+    .run();
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
 // Auth middleware for everything below
 // ---------------------------------------------------------------------------
 

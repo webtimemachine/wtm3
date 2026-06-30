@@ -69,6 +69,7 @@ function Auth({ onAuthed }: { onAuthed: (s: Session) => void }) {
           across all of them, each with a one-line AI summary. Private to your account.
         </p>
         <DownloadBadges />
+        <a className="beta-link" href="/beta">Want early access? Join the beta →</a>
       </section>
 
       <div className="card">
@@ -142,6 +143,8 @@ function Footer() {
       <a href={GITHUB_URL} target="_blank" rel="noreferrer">
         GitHub
       </a>
+      <span className="sep">·</span>
+      <a href="/beta">Beta</a>
       <span className="sep">·</span>
       <span>Web Time Machine</span>
     </footer>

@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wtm-redirect",
+  "account_id": "b732618f85b1356a957deddd468c4f58",
+  "main": "index.ts",
+  "compatibility_date": "2025-06-01",
+  "routes": [
+    { "pattern": "webtimemachine.io", "custom_domain": true },
+    { "pattern": "www.webtimemachine.io", "custom_domain": true }
+  ]
+}

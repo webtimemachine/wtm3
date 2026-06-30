@@ -101,11 +101,27 @@ pnpm --filter @wtm/extension-chrome package   # -> extension-chrome/wtm-chrome.z
 - **Data use:** captured page text + URLs are sent only to the user's Web Time Machine
   backend (`api.webtm.io`); not sold, not used for ads. Privacy policy linked above.
 
-### Assets (you provide)
+### Privacy practices (the dashboard's required form)
 
-- Store icon 128² (use `extension-chrome/icons/icon128.png`).
-- At least one screenshot 1280×800 (the extension popup and/or the dashboard).
-- Optional small promo tile 440×280.
+- **Single purpose (one sentence):** Web Time Machine records the readable text of pages
+  you visit so you can full-text search and sync your own browsing history across devices.
+- **Data the item collects** (check + certify each):
+  - *Web history* — URLs and the readable text of pages you visit.
+  - *Authentication information* — your account email + password (to sign in/sync).
+  - *Personally identifiable information* — email address.
+- **How it's used / certifications (toggle all three "I certify"):**
+  - Not sold to third parties.
+  - Used only for the single purpose above (sync + search of your own history).
+  - Not used to determine creditworthiness or for lending.
+- **Remote code:** No — all code is contained in the package (no `eval`, no remote scripts).
+- **Privacy policy URL:** https://webtm.io/privacy
+
+### Assets
+
+- **Store icon 128²:** `extension-chrome/icons/icon128.png` (in the zip).
+- **Screenshots (1280×800, ready to upload):** the two generated images — a populated
+  timeline with AI summaries, and a full-text search result. (Chrome needs ≥1; max 5.)
+- Optional small promo tile 440×280 (not required).
 
 ---
 

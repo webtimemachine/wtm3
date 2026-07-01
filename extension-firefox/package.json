@@ -1,0 +1,17 @@
+{
+  "name": "@wtm/extension-firefox",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "node build.mjs && cd dist && zip -qr ../wtm-firefox-android.zip . -x '*.map' && cd .. && echo 'packaged -> extension-firefox/wtm-firefox-android.zip'"
+  },
+  "dependencies": {
+    "@wtm/shared": "workspace:*",
+    "@wtm/extension-chrome": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}

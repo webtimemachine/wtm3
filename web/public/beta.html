@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Join the Beta — Web Time Machine</title>
+    <meta name="description" content="Become a Web Time Machine beta tester — iOS (TestFlight), Chrome, Firefox, and the web beta." />
+    <style>
+      :root { color-scheme: dark; --bg:#0b1020; --bg2:#0e1426; --card:#141a2e; --line:#232b45;
+        --fg:#e7ebf5; --muted:#8d97b5; --accent:#38bdf8; --accent-fg:#04121d; --danger:#f87171; }
+      * { box-sizing: border-box; }
+      body { margin:0; background: radial-gradient(1200px 600px at 50% -10%, #16203b 0%, var(--bg) 60%);
+        color:var(--fg); font:15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .wrap { max-width: 560px; margin: 0 auto; padding: 48px 22px 80px; }
+      h1 { font-size: 30px; margin: 0; } h1 .dot { color: var(--accent); }
+      .tagline { color: var(--muted); margin: 10px 0 26px; }
+      .card { background: var(--card); border:1px solid var(--line); border-radius:16px; padding:22px; }
+      label { display:block; font-size:12px; color:var(--muted); margin:14px 0 5px; }
+      input, select, textarea { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
+        background:var(--bg2); color:var(--fg); font-size:15px; font-family:inherit; }
+      input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent); }
+      textarea { resize: vertical; min-height: 64px; }
+      button { margin-top:18px; width:100%; border:0; border-radius:10px; padding:12px; font-size:15px;
+        font-weight:700; cursor:pointer; background:var(--accent); color:var(--accent-fg); }
+      button:disabled { opacity:.6; cursor:default; }
+      .msg { margin-top:14px; font-size:14px; }
+      .msg.err { color: var(--danger); } .msg.ok { color: var(--accent); }
+      .hp { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+      .links { margin-top:28px; }
+      .links h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 10px; }
+      .link { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--line);
+        border-radius:12px; text-decoration:none; color:var(--fg); margin-bottom:10px; background:var(--bg2); }
+      .link:hover { border-color: var(--accent); }
+      .link b { display:block; } .link small { color:var(--muted); }
+      .link.disabled { opacity:.55; pointer-events:none; }
+      a.home { color:var(--muted); font-size:13px; text-decoration:none; } a.home:hover { color:var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Join the <span class="dot">beta</span></h1>
+      <p class="tagline">Help test Web Time Machine before it ships. Leave your email and we'll send an
+        invite for your platform — or jump straight into the web beta below.</p>
+
+      <form id="f" class="card" autocomplete="off">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required placeholder="you@example.com" />
+
+        <label for="platform">Where do you want to test?</label>
+        <select id="platform" name="platform">
+          <option value="ios">iPhone / iPad (TestFlight)</option>
+          <option value="chrome">Chrome extension</option>
+          <option value="firefox">Firefox extension</option>
+          <option value="web">Web dashboard</option>
+          <option value="any" selected>Any / not sure</option>
+        </select>
+
+        <label for="note">Anything you want us to know? (optional)</label>
+        <textarea id="note" name="note" maxlength="500" placeholder="What do you want to use it for?"></textarea>
+
+        <!-- honeypot: hidden from humans; bots fill it and get silently dropped -->
+        <div class="hp" aria-hidden="true">
+          <label>Website<input name="website" tabindex="-1" autocomplete="off" /></label>
+        </div>
+
+        <button id="submit" type="submit">Request a beta invite</button>
+        <div id="msg" class="msg"></div>
+      </form>
+
+      <div class="links">
+        <h2>Or jump in now</h2>
+        <a class="link" href="https://beta.webtm.io" target="_blank" rel="noreferrer">
+          <span>🌐</span><span><b>Web beta</b><small>beta.webtm.io — live now, sign in with your account</small></span>
+        </a>
+        <a class="link" href="https://beta.webtm.io/downloads/wtm-chrome.zip">
+          <span>🧩</span><span><b>Chrome extension</b><small>Download · unzip · chrome://extensions → Developer mode → Load unpacked</small></span>
+        </a>
+        <a class="link" href="https://beta.webtm.io/downloads/wtm-firefox.xpi">
+          <span>🦊</span><span><b>Firefox extension</b><small>Signed beta build — opens Firefox's install prompt directly</small></span>
+        </a>
+        <a id="tf" class="link disabled" href="#" target="_blank" rel="noreferrer">
+          <span>📱</span><span><b>iOS TestFlight</b><small id="tfnote">Invite-based for now — request above</small></span>
+        </a>
+      </div>
+
+      <p style="margin-top:28px"><a class="home" href="/">← Back to Web Time Machine</a></p>
+    </div>
+
+    <script>
+      // TestFlight public link (external testing):
+      const TESTFLIGHT_URL = "https://testflight.apple.com/join/2PHQmBBW";
+      const API = "https://api.webtm.io/beta/signup";
+
+      if (TESTFLIGHT_URL) {
+        const tf = document.getElementById("tf");
+        tf.href = TESTFLIGHT_URL; tf.classList.remove("disabled");
+        document.getElementById("tfnote").textContent = "Open in TestFlight";
+      }
+
+      const form = document.getElementById("f");
+      const btn = document.getElementById("submit");
+      const msg = document.getElementById("msg");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        msg.textContent = ""; msg.className = "msg";
+        btn.disabled = true; btn.textContent = "Sending…";
+        const payload = {
+          email: form.email.value.trim(),
+          platform: form.platform.value,
+          note: form.note.value.trim(),
+          website: form.website.value, // honeypot
+        };
+        try {
+          const r = await fetch(API, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+          });
+          if (r.ok) {
+            form.querySelectorAll("input,select,textarea,button").forEach((el) => (el.style.display = "none"));
+            msg.className = "msg ok";
+            msg.textContent =
+              "✓ You're on the list (" + payload.email + "). Jump in right now with the links below — " +
+              "we'll reach out for anything that needs a manual invite.";
+          } else {
+            const j = await r.json().catch(() => ({}));
+            msg.className = "msg err";
+            msg.textContent = j.message || "Something went wrong — please try again.";
+            btn.disabled = false; btn.textContent = "Request a beta invite";
+          }
+        } catch {
+          msg.className = "msg err";
+          msg.textContent = "Could not reach the server — please try again.";
+          btn.disabled = false; btn.textContent = "Request a beta invite";
+        }
+      });
+    </script>
+  </body>
+</html>

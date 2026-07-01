@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wtm-web",
+  "account_id": "b732618f85b1356a957deddd468c4f58",
+  "compatibility_date": "2025-06-01",
+  "routes": [
+    { "pattern": "webtm.io", "custom_domain": true },
+    { "pattern": "www.webtm.io", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "env": {
+    "beta": {
+      "name": "wtm-web-beta",
+      "routes": [{ "pattern": "beta.webtm.io", "custom_domain": true }],
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      }
+    }
+  }
+}

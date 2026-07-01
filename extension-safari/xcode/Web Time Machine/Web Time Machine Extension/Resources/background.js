@@ -137,6 +137,11 @@
   var STATE_KEY = "wtm:state";
   var QUEUE_KEY = "wtm:queue";
   var QUEUE_SOFT_BYTES = 4e6;
+  var quotaCeilingBytes = null;
+  function noteQuotaHit(failedBytes) {
+    const ceiling = Math.floor(failedBytes * 0.75);
+    quotaCeilingBytes = quotaCeilingBytes === null ? ceiling : Math.min(quotaCeilingBytes, ceiling);
+  }
   function byteSize(value) {
     return new TextEncoder().encode(JSON.stringify(value)).length;
   }
@@ -144,23 +149,37 @@
     const s = `${e?.message ?? e}`.toLowerCase();
     return s.includes("quota") || s.includes("exceeded");
   }
+  function dropOldest(q, fraction) {
+    return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
   }
   async function setState(patch) {
     const next = { ...await getState(), ...patch };
-    await chrome.storage.local.set({ [STATE_KEY]: next });
-    return next;
+    for (; ; ) {
+      try {
+        await chrome.storage.local.set({ [STATE_KEY]: next });
+        return next;
+      } catch (e) {
+        if (!isQuotaError(e)) throw e;
+        const q = await getQueue();
+        if (q.length === 0) throw e;
+        noteQuotaHit(byteSize(next) + byteSize(q));
+        await setQueue(dropOldest(q, 0.25));
+      }
+    }
   }
   async function getQueue() {
     const o = await chrome.storage.local.get(QUEUE_KEY);
     return o[QUEUE_KEY] ?? [];
   }
   async function setQueue(q) {
+    const budget = Math.min(QUEUE_SOFT_BYTES, quotaCeilingBytes ?? Number.POSITIVE_INFINITY);
     let pages = q;
-    while (pages.length > 1 && byteSize(pages) > QUEUE_SOFT_BYTES) {
-      pages = pages.slice(Math.max(1, Math.ceil(pages.length * 0.1)));
+    while (pages.length > 1 && byteSize(pages) > budget) {
+      pages = dropOldest(pages, 0.1);
     }
     for (; ; ) {
       try {
@@ -168,7 +187,8 @@
         return;
       } catch (e) {
         if (!isQuotaError(e) || pages.length === 0) throw e;
-        pages = pages.length === 1 ? [] : pages.slice(Math.max(1, Math.ceil(pages.length * 0.25)));
+        noteQuotaHit(byteSize(pages));
+        pages = dropOldest(pages, 0.25);
       }
     }
   }
@@ -185,6 +205,7 @@
   var BATCH = 50;
   var flushTimer = null;
   var flushing = false;
+  var cachedDeviceId = null;
   chrome.runtime.onInstalled.addListener(async () => {
     await getState();
     chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
@@ -232,11 +253,15 @@
       if (!st.token || !st.baseUrl) return;
       if (!(await getQueue()).length) return;
       const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
-      let deviceId = st.deviceId;
+      let deviceId = st.deviceId ?? cachedDeviceId;
       if (!deviceId) {
         const node = await client.registerNode({ name: deviceName(), platform: PLATFORM });
         deviceId = node.id;
+      }
+      cachedDeviceId = deviceId;
+      try {
         await setState({ deviceId });
+      } catch {
       }
       while (true) {
         const current = await getQueue();
@@ -247,12 +272,16 @@
         const after = await getQueue();
         await setQueue(after.filter((p) => !acked.has(p.id)));
       }
-      await setState({ lastSync: Date.now(), lastError: null });
+      await setState({ deviceId, lastSync: Date.now(), lastError: null });
     } catch (e) {
       const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : String(e);
-      await setState({ lastError: msg });
-      if (e instanceof WtmApiError && e.status === 401) {
-        await setState({ token: null, deviceId: null });
+      try {
+        await setState({ lastError: msg });
+        if (e instanceof WtmApiError && e.status === 401) {
+          cachedDeviceId = null;
+          await setState({ token: null, deviceId: null });
+        }
+      } catch {
       }
     } finally {
       flushing = false;

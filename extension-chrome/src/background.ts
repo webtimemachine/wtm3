@@ -9,6 +9,9 @@ const BATCH = 50;
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
+// Survives a failed setState (full storage) so an aborted flush can't register
+// a duplicate node on the next attempt.
+let cachedDeviceId: string | null = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
   await getState(); // materialize defaults
@@ -63,11 +66,17 @@ async function flush(): Promise<void> {
 
     const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
 
-    let deviceId = st.deviceId;
+    let deviceId = st.deviceId ?? cachedDeviceId;
     if (!deviceId) {
       const node = await client.registerNode({ name: deviceName(), platform: PLATFORM });
       deviceId = node.id;
+    }
+    cachedDeviceId = deviceId;
+    try {
       await setState({ deviceId });
+    } catch {
+      // Storage full even after trimming the queue — the in-memory id keeps
+      // this session syncing, and we persist again after the drain frees space.
     }
 
     // Drain in batches. Re-read storage after each push and remove only the
@@ -81,13 +90,18 @@ async function flush(): Promise<void> {
       const after = await getQueue();
       await setQueue(after.filter((p) => !acked.has(p.id)));
     }
-    await setState({ lastSync: Date.now(), lastError: null });
+    await setState({ deviceId, lastSync: Date.now(), lastError: null });
   } catch (e) {
     const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : String(e);
-    await setState({ lastError: msg });
-    if (e instanceof WtmApiError && e.status === 401) {
-      // Token expired/invalid — drop it so the popup prompts a re-login.
-      await setState({ token: null, deviceId: null });
+    try {
+      await setState({ lastError: msg });
+      if (e instanceof WtmApiError && e.status === 401) {
+        // Token expired/invalid — drop it so the popup prompts a re-login.
+        cachedDeviceId = null;
+        await setState({ token: null, deviceId: null });
+      }
+    } catch {
+      // Reporting the error must never itself throw (e.g. storage still full).
     }
   } finally {
     flushing = false;

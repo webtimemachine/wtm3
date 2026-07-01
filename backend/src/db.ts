@@ -18,6 +18,7 @@ export interface PageRow {
   r2_key: string | null;
   has_text: number;
   content_hash: string | null;
+  text_bytes: number;
   deleted: number;
   sensitive: number;
   seq: number;

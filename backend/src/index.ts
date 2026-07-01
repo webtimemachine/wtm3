@@ -22,6 +22,10 @@ const DAY_MS = 86_400_000;
 /** Server-side caps for /sync/push (defense against oversized/abusive payloads). */
 const MAX_TEXT_CHARS = 200_000;
 const MAX_ITEMS_PER_PUSH = 200;
+/** Per-user resource quotas — bound the account (and the Cloudflare bill), not just the request. */
+const MAX_NODES_PER_USER = 20;
+const MAX_PAGES_PER_USER = 100_000;
+const MAX_TEXT_BYTES_PER_USER = 2_000_000_000; // ~2 GB of readable text per user
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -268,19 +272,60 @@ app.patch("/settings", async (c) => {
 app.post("/nodes", async (c) => {
   const userId = c.get("userId");
   const body = await c.req.json().catch(() => null);
-  const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim() : "Unnamed device";
-  const platform = typeof body?.platform === "string" ? body.platform : "unknown";
-  const id = typeof body?.id === "string" && body.id ? body.id : crypto.randomUUID();
+  const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim().slice(0, 128) : "Unnamed device";
+  const platform = typeof body?.platform === "string" ? body.platform.slice(0, 64) : "unknown";
+  const supplied = typeof body?.id === "string" && body.id ? body.id.slice(0, 128) : null;
   const now = Date.now();
 
+  // Re-registering a node this user already owns: refresh it in place.
+  if (supplied) {
+    const res = await c.env.DB.prepare(
+      "UPDATE nodes SET name=?1, platform=?2, last_seen_at=?3 WHERE id=?4 AND user_id=?5",
+    )
+      .bind(name, platform, now, supplied, userId)
+      .run();
+    if (res.meta.changes) {
+      const node: NodeInfo = { id: supplied, name, platform, createdAt: now, lastSeenAt: now };
+      return c.json(node, 201);
+    }
+  }
+
+  // New node: cap devices per user. At the cap, reuse the most recent node with
+  // the same name+platform so repeat registrations (misbehaving or pre-3.0.2
+  // clients that lost their deviceId) converge instead of growing the table.
+  const count =
+    (await c.env.DB.prepare("SELECT count(*) AS n FROM nodes WHERE user_id = ?1")
+      .bind(userId)
+      .first<{ n: number }>())?.n ?? 0;
+  if (count >= MAX_NODES_PER_USER) {
+    const reuse = await c.env.DB.prepare(
+      "SELECT id, created_at FROM nodes WHERE user_id=?1 AND name=?2 AND platform=?3 ORDER BY last_seen_at DESC LIMIT 1",
+    )
+      .bind(userId, name, platform)
+      .first<{ id: string; created_at: number }>();
+    if (reuse) {
+      await c.env.DB.prepare("UPDATE nodes SET last_seen_at=?1 WHERE id=?2 AND user_id=?3")
+        .bind(now, reuse.id, userId)
+        .run();
+      const node: NodeInfo = { id: reuse.id, name, platform, createdAt: reuse.created_at, lastSeenAt: now };
+      return c.json(node, 201);
+    }
+    return c.json(
+      { error: "too_many_devices", message: `Device limit (${MAX_NODES_PER_USER}) reached. Remove an unused device first.` },
+      409,
+    );
+  }
+
+  const id = supplied ?? crypto.randomUUID();
   await c.env.DB.prepare(
     `INSERT INTO nodes (id, user_id, name, platform, created_at, last_seen_at)
      VALUES (?1,?2,?3,?4,?5,?5)
-     ON CONFLICT(id) DO UPDATE SET name=excluded.name, platform=excluded.platform, last_seen_at=excluded.last_seen_at
-     WHERE nodes.user_id = ?2`,
+     ON CONFLICT(id) DO NOTHING`,
   )
     .bind(id, userId, name, platform, now)
     .run();
+  const owned = await c.env.DB.prepare("SELECT id FROM nodes WHERE id=?1 AND user_id=?2").bind(id, userId).first();
+  if (!owned) return c.json({ error: "node_id_taken", message: "That device id is unavailable." }, 409);
 
   const node: NodeInfo = { id, name, platform, createdAt: now, lastSeenAt: now };
   return c.json(node, 201);
@@ -378,6 +423,33 @@ app.post("/sync/push", async (c) => {
     return c.json(res);
   }
 
+  // Per-user storage quota. Checked only when the push adds pages — deletes
+  // always go through, so a full account can still free space by syncing.
+  // Re-pushed pages count their new size on top of the old row's until the
+  // upsert lands (slight overcount, fine for a growth bound).
+  const textBytes = new Map<string, number>();
+  for (const p of pages) textBytes.set(p.id, p.text ? new TextEncoder().encode(p.text).length : 0);
+  if (pages.length) {
+    const usage = await c.env.DB.prepare(
+      "SELECT count(*) AS n, COALESCE(SUM(text_bytes),0) AS bytes FROM pages WHERE user_id = ?1 AND deleted = 0",
+    )
+      .bind(userId)
+      .first<{ n: number; bytes: number }>();
+    const incoming = [...textBytes.values()].reduce((a, b) => a + b, 0);
+    if (
+      (usage?.n ?? 0) + pages.length > MAX_PAGES_PER_USER ||
+      (usage?.bytes ?? 0) + incoming > MAX_TEXT_BYTES_PER_USER
+    ) {
+      return c.json(
+        {
+          error: "storage_quota_exceeded",
+          message: "Account storage is full. Delete pages or shorten history retention, then sync again.",
+        },
+        413,
+      );
+    }
+  }
+
   const retentionDays =
     (await c.env.DB.prepare("SELECT retention_days FROM users WHERE id = ?1")
       .bind(userId)
@@ -409,13 +481,13 @@ app.post("/sync/push", async (c) => {
     stmts.push(
       c.env.DB.prepare(
         `INSERT INTO pages
-          (id,user_id,url,title,visited_at,captured_at,device_id,excerpt,byline,lang,r2_key,has_text,content_hash,summary,summary_status,deleted,sensitive,seq,expires_at,updated_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,NULL,'pending',0,?14,?15,?16,?17)
+          (id,user_id,url,title,visited_at,captured_at,device_id,excerpt,byline,lang,r2_key,has_text,content_hash,text_bytes,summary,summary_status,deleted,sensitive,seq,expires_at,updated_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,NULL,'pending',0,?15,?16,?17,?18)
          ON CONFLICT(id) DO UPDATE SET
            url=excluded.url, title=excluded.title, visited_at=excluded.visited_at,
            captured_at=excluded.captured_at, device_id=excluded.device_id,
            excerpt=excluded.excerpt, byline=excluded.byline, lang=excluded.lang,
-           r2_key=excluded.r2_key, has_text=excluded.has_text,
+           r2_key=excluded.r2_key, has_text=excluded.has_text, text_bytes=excluded.text_bytes,
            deleted=0, seq=excluded.seq, expires_at=excluded.expires_at, updated_at=excluded.updated_at,
            summary = CASE WHEN pages.content_hash IS NOT excluded.content_hash THEN NULL ELSE pages.summary END,
            summary_status = CASE WHEN pages.content_hash IS NOT excluded.content_hash THEN 'pending' ELSE pages.summary_status END,
@@ -436,6 +508,7 @@ app.post("/sync/push", async (c) => {
         r2key,
         hasText,
         ch,
+        textBytes.get(p.id) ?? 0,
         sensSeed,
         seq,
         expiresAt,
@@ -452,7 +525,7 @@ app.post("/sync/push", async (c) => {
     seq++;
     stmts.push(
       c.env.DB.prepare(
-        "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
+        "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
       ).bind(seq, now, id, userId),
       c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
     );
@@ -619,7 +692,7 @@ app.delete("/pages/:id", async (c) => {
   const seq = await reserveSeq(c.env, userId, 1);
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
+      "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
     ).bind(seq, Date.now(), id, userId),
     c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
   ]);
@@ -668,7 +741,7 @@ async function runRetention(env: Env): Promise<number> {
         seq++;
         stmts.push(
           env.DB.prepare(
-            "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
+            "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
           ).bind(seq, now, id, userId),
           env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
         );

@@ -1,7 +1,7 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
 import type { PageRecord, SearchHit } from "@wtm/shared";
 import { snippetHtml, timeAgo } from "@wtm/shared/format";
-import { DEFAULT_BACKEND } from "./config";
+import { DEFAULT_BACKEND, deviceOwnerKey } from "./config";
 import { getQueue, getState, setState } from "./storage";
 
 const app = document.getElementById("app") as HTMLDivElement;
@@ -60,7 +60,12 @@ async function renderAuth(errorMsg?: string): Promise<void> {
     try {
       const c = new WtmClient({ baseUrl });
       const res = register ? await c.register({ email, password }) : await c.login({ email, password });
-      await setState({ baseUrl, token: res.token, user: res.user, deviceId: null, lastError: null });
+      // Re-login into the same account on the same backend keeps this device's
+      // node registration; anything else starts fresh (no duplicate nodes).
+      const prev = await getState();
+      const owner = deviceOwnerKey(baseUrl, res.user.id);
+      const deviceId = prev.deviceOwner === owner ? prev.deviceId : null;
+      await setState({ baseUrl, token: res.token, user: res.user, deviceId, deviceOwner: owner, lastError: null });
       chrome.runtime.sendMessage({ type: "authChanged" });
       await renderApp();
     } catch (e) {
@@ -103,7 +108,9 @@ async function renderApp(): Promise<void> {
   captureToggle.addEventListener("change", () => void setState({ captureEnabled: captureToggle.checked }));
   const logout = h("button", { class: "link" }, ["Log out"]);
   logout.addEventListener("click", async () => {
-    await setState({ token: null, user: null, deviceId: null });
+    // Keep deviceId + deviceOwner: logging back into the same account should
+    // reuse this device's node instead of registering a duplicate.
+    await setState({ token: null, user: null });
     await renderAuth();
   });
 

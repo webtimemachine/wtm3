@@ -13,9 +13,16 @@ export interface ExtState {
   token: string | null;
   user: UserInfo | null;
   deviceId: string | null;
+  /** Which user id (on which backend) deviceId was registered under, as "baseUrl|userId". */
+  deviceOwner: string | null;
   captureEnabled: boolean;
   lastSync: number | null;
   lastError: string | null;
+}
+
+/** Key identifying which account a registered deviceId belongs to. */
+export function deviceOwnerKey(baseUrl: string, userId: string): string {
+  return `${baseUrl}|${userId}`;
 }
 
 export const DEFAULT_STATE: ExtState = {
@@ -23,6 +30,7 @@ export const DEFAULT_STATE: ExtState = {
   token: null,
   user: null,
   deviceId: null,
+  deviceOwner: null,
   captureEnabled: true,
   lastSync: null,
   lastError: null,

@@ -1,7 +1,7 @@
 // Background service worker: owns the capture queue and syncs it to the backend.
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
 import type { CapturedPage } from "@wtm/shared";
-import { PLATFORM } from "./config";
+import { deviceOwnerKey, PLATFORM } from "./config";
 import { enqueue, getQueue, getState, setQueue, setState } from "./storage";
 
 const FLUSH_ALARM = "wtm:flush";
@@ -10,8 +10,9 @@ const BATCH = 50;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 // Survives a failed setState (full storage) so an aborted flush can't register
-// a duplicate node on the next attempt.
-let cachedDeviceId: string | null = null;
+// a duplicate node on the next attempt. Owner-tagged so a different account
+// logging in never inherits another account's node id.
+let cachedNode: { id: string; owner: string } | null = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
   await getState(); // materialize defaults
@@ -66,14 +67,15 @@ async function flush(): Promise<void> {
 
     const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
 
-    let deviceId = st.deviceId ?? cachedDeviceId;
+    const owner = deviceOwnerKey(st.baseUrl, st.user?.id ?? "");
+    let deviceId = st.deviceId ?? (cachedNode?.owner === owner ? cachedNode.id : null);
     if (!deviceId) {
       const node = await client.registerNode({ name: deviceName(), platform: PLATFORM });
       deviceId = node.id;
     }
-    cachedDeviceId = deviceId;
+    cachedNode = { id: deviceId, owner };
     try {
-      await setState({ deviceId });
+      await setState({ deviceId, deviceOwner: owner });
     } catch {
       // Storage full even after trimming the queue — the in-memory id keeps
       // this session syncing, and we persist again after the drain frees space.
@@ -90,15 +92,15 @@ async function flush(): Promise<void> {
       const after = await getQueue();
       await setQueue(after.filter((p) => !acked.has(p.id)));
     }
-    await setState({ deviceId, lastSync: Date.now(), lastError: null });
+    await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null });
   } catch (e) {
     const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : String(e);
     try {
       await setState({ lastError: msg });
       if (e instanceof WtmApiError && e.status === 401) {
-        // Token expired/invalid — drop it so the popup prompts a re-login.
-        cachedDeviceId = null;
-        await setState({ token: null, deviceId: null });
+        // Token expired/invalid — drop it so the popup prompts a re-login, but
+        // keep deviceId/deviceOwner so the same account reuses this node.
+        await setState({ token: null });
       }
     } catch {
       // Reporting the error must never itself throw (e.g. storage still full).

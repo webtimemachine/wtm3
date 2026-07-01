@@ -11,7 +11,7 @@
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
     "dev:backend": "pnpm --filter @wtm/backend dev",
-    "deploy:backend": "pnpm --filter @wtm/backend deploy",
+    "deploy:backend": "pnpm --filter @wtm/backend run deploy",
     "dev:web": "pnpm --filter @wtm/web dev",
     "build:chrome": "pnpm --filter @wtm/extension-chrome build",
     "build:firefox": "pnpm --filter @wtm/extension-firefox build",

@@ -123,11 +123,15 @@
   // ../extension-chrome/src/config.ts
   var DEFAULT_BACKEND = "https://api.webtm.io";
   var PLATFORM = true ? "safari-ios" : "chrome";
+  function deviceOwnerKey(baseUrl, userId) {
+    return `${baseUrl}|${userId}`;
+  }
   var DEFAULT_STATE = {
     baseUrl: DEFAULT_BACKEND,
     token: null,
     user: null,
     deviceId: null,
+    deviceOwner: null,
     captureEnabled: true,
     lastSync: null,
     lastError: null
@@ -205,7 +209,7 @@
   var BATCH = 50;
   var flushTimer = null;
   var flushing = false;
-  var cachedDeviceId = null;
+  var cachedNode = null;
   chrome.runtime.onInstalled.addListener(async () => {
     await getState();
     chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
@@ -253,14 +257,15 @@
       if (!st.token || !st.baseUrl) return;
       if (!(await getQueue()).length) return;
       const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
-      let deviceId = st.deviceId ?? cachedDeviceId;
+      const owner = deviceOwnerKey(st.baseUrl, st.user?.id ?? "");
+      let deviceId = st.deviceId ?? (cachedNode?.owner === owner ? cachedNode.id : null);
       if (!deviceId) {
         const node = await client.registerNode({ name: deviceName(), platform: PLATFORM });
         deviceId = node.id;
       }
-      cachedDeviceId = deviceId;
+      cachedNode = { id: deviceId, owner };
       try {
-        await setState({ deviceId });
+        await setState({ deviceId, deviceOwner: owner });
       } catch {
       }
       while (true) {
@@ -272,14 +277,13 @@
         const after = await getQueue();
         await setQueue(after.filter((p) => !acked.has(p.id)));
       }
-      await setState({ deviceId, lastSync: Date.now(), lastError: null });
+      await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null });
     } catch (e) {
       const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : String(e);
       try {
         await setState({ lastError: msg });
         if (e instanceof WtmApiError && e.status === 401) {
-          cachedDeviceId = null;
-          await setState({ token: null, deviceId: null });
+          await setState({ token: null });
         }
       } catch {
       }

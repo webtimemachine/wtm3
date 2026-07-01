@@ -139,11 +139,15 @@
 
   // ../extension-chrome/src/config.ts
   var DEFAULT_BACKEND = "https://api.webtm.io";
+  function deviceOwnerKey(baseUrl, userId) {
+    return `${baseUrl}|${userId}`;
+  }
   var DEFAULT_STATE = {
     baseUrl: DEFAULT_BACKEND,
     token: null,
     user: null,
     deviceId: null,
+    deviceOwner: null,
     captureEnabled: true,
     lastSync: null,
     lastError: null
@@ -251,7 +255,10 @@
       try {
         const c = new WtmClient({ baseUrl });
         const res = register ? await c.register({ email, password }) : await c.login({ email, password });
-        await setState({ baseUrl, token: res.token, user: res.user, deviceId: null, lastError: null });
+        const prev = await getState();
+        const owner = deviceOwnerKey(baseUrl, res.user.id);
+        const deviceId = prev.deviceOwner === owner ? prev.deviceId : null;
+        await setState({ baseUrl, token: res.token, user: res.user, deviceId, deviceOwner: owner, lastError: null });
         chrome.runtime.sendMessage({ type: "authChanged" });
         await renderApp();
       } catch (e) {
@@ -284,7 +291,7 @@
     captureToggle.addEventListener("change", () => void setState({ captureEnabled: captureToggle.checked }));
     const logout = h("button", { class: "link" }, ["Log out"]);
     logout.addEventListener("click", async () => {
-      await setState({ token: null, user: null, deviceId: null });
+      await setState({ token: null, user: null });
       await renderAuth();
     });
     app.append(

@@ -152,18 +152,61 @@
   // ../extension-chrome/src/storage.ts
   var STATE_KEY = "wtm:state";
   var QUEUE_KEY = "wtm:queue";
+  var QUEUE_SOFT_BYTES = 4e6;
+  var quotaCeilingBytes = null;
+  function noteQuotaHit(failedBytes) {
+    const ceiling = Math.floor(failedBytes * 0.75);
+    quotaCeilingBytes = quotaCeilingBytes === null ? ceiling : Math.min(quotaCeilingBytes, ceiling);
+  }
+  function byteSize(value) {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  }
+  function isQuotaError(e) {
+    const s = `${e?.message ?? e}`.toLowerCase();
+    return s.includes("quota") || s.includes("exceeded");
+  }
+  function dropOldest(q, fraction) {
+    return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
   }
   async function setState(patch) {
     const next = { ...await getState(), ...patch };
-    await chrome.storage.local.set({ [STATE_KEY]: next });
-    return next;
+    for (; ; ) {
+      try {
+        await chrome.storage.local.set({ [STATE_KEY]: next });
+        return next;
+      } catch (e) {
+        if (!isQuotaError(e)) throw e;
+        const q = await getQueue();
+        if (q.length === 0) throw e;
+        noteQuotaHit(byteSize(next) + byteSize(q));
+        await setQueue(dropOldest(q, 0.25));
+      }
+    }
   }
   async function getQueue() {
     const o = await chrome.storage.local.get(QUEUE_KEY);
     return o[QUEUE_KEY] ?? [];
+  }
+  async function setQueue(q) {
+    const budget = Math.min(QUEUE_SOFT_BYTES, quotaCeilingBytes ?? Number.POSITIVE_INFINITY);
+    let pages = q;
+    while (pages.length > 1 && byteSize(pages) > budget) {
+      pages = dropOldest(pages, 0.1);
+    }
+    for (; ; ) {
+      try {
+        await chrome.storage.local.set({ [QUEUE_KEY]: pages });
+        return;
+      } catch (e) {
+        if (!isQuotaError(e) || pages.length === 0) throw e;
+        noteQuotaHit(byteSize(pages));
+        pages = dropOldest(pages, 0.25);
+      }
+    }
   }
 
   // ../extension-chrome/src/popup.ts

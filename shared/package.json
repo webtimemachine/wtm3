@@ -1,0 +1,21 @@
+{
+  "name": "@wtm/shared",
+  "version": "3.0.0",
+  "description": "Shared wire-protocol types and on-device page capture for Web Time Machine.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./capture": "./src/capture.ts",
+    "./api": "./src/api.ts",
+    "./format": "./src/format.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

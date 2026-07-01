@@ -1,0 +1,23 @@
+{
+  "name": "@wtm/extension-chrome",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "node build.mjs && cd dist && zip -qr ../wtm-chrome.zip . -x '*.map' && cd .. && echo 'packaged -> extension-chrome/wtm-chrome.zip'",
+    "icons": "python3 scripts/gen-icons.py",
+    "typecheck": "tsc --noEmit",
+    "cws:auth-url": "node scripts/cws-auth.mjs url",
+    "cws:exchange": "node scripts/cws-auth.mjs exchange",
+    "cws:publish": "pnpm run package && node scripts/cws-publish.mjs deploy"
+  },
+  "dependencies": {
+    "@wtm/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  }
+}

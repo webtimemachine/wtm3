@@ -1,0 +1,44 @@
+name: Browser extension release (tag browser-v* or chrome-v*)
+
+# Push a tag like `browser-v3.0.1` or `chrome-v3.0.1` to build Chrome and
+# Firefox Android packages side by side, then publish both: Chrome to the Chrome
+# Web Store and Firefox to addons.mozilla.org (AMO). Bump both extension
+# manifests first. Requires CWS_* and AMO_JWT_ISSUER/AMO_JWT_SECRET secrets.
+on:
+  push:
+    tags: ["browser-v*", "chrome-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wtm/extension-chrome run package
+      - run: pnpm --filter @wtm/extension-firefox run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension-release-packages
+          path: |
+            extension-chrome/wtm-chrome.zip
+            extension-firefox/wtm-firefox-android.zip
+          if-no-files-found: error
+      # Publish Firefox to AMO first so a credentials/listing problem fails the run
+      # before Chrome is published (avoids a half-released state). `package` above
+      # already built extension-firefox/dist used by web-ext sign.
+      - run: node extension-firefox/scripts/amo-publish.mjs listed
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      - run: node extension-chrome/scripts/cws-publish.mjs deploy
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_ITEM_ID: ${{ secrets.CWS_ITEM_ID }}

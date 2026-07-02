@@ -1,6 +1,6 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
 import { isValidRetentionDays, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type PageRecord, type SearchHit } from "@wtm/shared";
-import { chooseSubline, snippetHtml, timeAgo } from "@wtm/shared/format";
+import { chooseSubline, SEARCH_DEBOUNCE_MS, snippetHtml, timeAgo } from "@wtm/shared/format";
 import { DEFAULT_BACKEND, deviceOwnerKey } from "./config";
 import { getQueue, getState, setState } from "./storage";
 
@@ -152,7 +152,7 @@ async function renderApp(): Promise<void> {
 
   search.addEventListener("input", () => {
     if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => void runSearch(search.value.trim(), results), 220);
+    searchTimer = setTimeout(() => void runSearch(search.value.trim(), results), SEARCH_DEBOUNCE_MS);
   });
 
   await loadRecent(results);

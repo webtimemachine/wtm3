@@ -1,5 +1,17 @@
 // Small presentation helpers shared by the web dashboard and the extensions.
 
+/** Search-as-you-type debounce, shared so both UIs feel identical. */
+export const SEARCH_DEBOUNCE_MS = 220;
+
+/** Display hostname of a URL ("www." stripped). Returns the input unchanged if it doesn't parse. */
+export function hostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
 /**
  * Render a backend FTS snippet safely: HTML-escape everything, then re-enable
  * only the server's <mark>…</mark> highlight tags. Prevents captured page text

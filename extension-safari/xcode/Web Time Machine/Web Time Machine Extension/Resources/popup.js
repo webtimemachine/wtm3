@@ -127,6 +127,7 @@
   };
 
   // ../shared/src/format.ts
+  var SEARCH_DEBOUNCE_MS = 220;
   function snippetHtml(s) {
     const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return esc.replaceAll("&lt;mark&gt;", "<mark>").replaceAll("&lt;/mark&gt;", "</mark>");
@@ -377,7 +378,7 @@
     app.append(results);
     search.addEventListener("input", () => {
       if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => void runSearch(search.value.trim(), results), 220);
+      searchTimer = setTimeout(() => void runSearch(search.value.trim(), results), SEARCH_DEBOUNCE_MS);
     });
     await loadRecent(results);
   }

@@ -1,11 +1,12 @@
 {
   "name": "@wtm/extension-safari",
-  "version": "3.0.0",
+  "version": "3.1.2",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "convert": "bash convert.sh"
+    "convert": "bash convert.sh",
+    "sync-resources": "node scripts/sync-resources.mjs"
   },
   "dependencies": {
     "@wtm/shared": "workspace:*",

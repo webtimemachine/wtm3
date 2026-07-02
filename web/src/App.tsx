@@ -9,7 +9,7 @@ import {
   type SearchHit,
   type UserInfo,
 } from "@wtm/shared";
-import { chooseSubline } from "@wtm/shared/format";
+import { chooseSubline, hostname, SEARCH_DEBOUNCE_MS } from "@wtm/shared/format";
 import {
   DEFAULT_BACKEND,
   clientFor,
@@ -351,7 +351,7 @@ function Dashboard({
     const t = setTimeout(() => {
       if (q) void runSearch(q);
       else void loadRecent();
-    }, 220);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [query, runSearch, loadRecent]);
 
@@ -483,14 +483,6 @@ function Dashboard({
       )}
     </div>
   );
-}
-
-function hostname(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
 }
 
 function PageCard({

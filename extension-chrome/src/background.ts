@@ -2,7 +2,7 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
 import type { CapturedPage } from "@wtm/shared";
 import { deviceOwnerKey, PLATFORM } from "./config";
-import { enqueue, getQueue, getState, isQuotaError, setQueue, setState } from "./storage";
+import { enqueue, getQueue, getState, isQuotaError, setQueue, setState, withQueueLock } from "./storage";
 
 const FLUSH_ALARM = "wtm:flush";
 const BATCH = 50;
@@ -106,8 +106,27 @@ async function flush(): Promise<void> {
       const acked = new Set(batch.map((p) => p.id));
       await client.push({ deviceId, pages: batch });
       await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
-      const after = await getQueue();
-      await setQueue(after.filter((p) => !acked.has(p.id)));
+      // Removal + verification as one locked step, so a capture arriving mid-
+      // flush (enqueue() also takes this lock) can't interleave its own
+      // read-modify-write and clobber this one.
+      const stuck = await withQueueLock(async () => {
+        const after = await getQueue();
+        await setQueue(after.filter((p) => !acked.has(p.id)));
+        // A batch that lands on the server but never leaves local storage
+        // would otherwise get silently re-pushed every trigger forever
+        // (harmless to the server — it's an idempotent upsert — but the real
+        // backlog behind it never gets a turn, and the displayed queue count
+        // never drops). Verify it actually stuck.
+        const verify = await getQueue();
+        return verify.some((p) => acked.has(p.id));
+      });
+      if (stuck) {
+        // Stop this run rather than hammering the network with identical
+        // pushes, and surface something diagnosable instead of a silent loop.
+        throw new Error(
+          `sync: ${batch.length} page(s) landed on the server but local storage didn't drop them — will retry`,
+        );
+      }
     }
   } catch (e) {
     // Quota hits are recovered by design (the queue trims itself), so report

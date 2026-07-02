@@ -338,6 +338,21 @@
     );
   }
   var searchTimer = null;
+  async function renderStatus(container) {
+    const st = await getState();
+    const queue = await getQueue();
+    const children = [
+      h("span", {}, [h("b", {}, [String(queue.length)]), " queued"]),
+      " \xB7 ",
+      h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"])
+    ];
+    const ERROR_TTL_MS = 15 * 6e4;
+    if (st.lastError && st.lastErrorAt && Date.now() - st.lastErrorAt < ERROR_TTL_MS) {
+      const cls = /storage was full/i.test(st.lastError) ? "hint" : "error";
+      children.push(h("div", { class: cls }, [`${st.lastError} (${timeAgo(st.lastErrorAt)})`]));
+    }
+    container.replaceChildren(...children);
+  }
   async function renderApp() {
     const st = await getState();
     if (!st.token || !st.user) return renderAuth();
@@ -359,18 +374,10 @@
         logout
       ])
     );
-    const queue = await getQueue();
-    const status = h("div", { class: "section status" }, [
-      h("span", {}, [h("b", {}, [String(queue.length)]), " queued"]),
-      " \xB7 ",
-      h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"])
-    ]);
-    const ERROR_TTL_MS = 15 * 6e4;
-    if (st.lastError && st.lastErrorAt && Date.now() - st.lastErrorAt < ERROR_TTL_MS) {
-      const cls = /storage was full/i.test(st.lastError) ? "hint" : "error";
-      status.append(h("div", { class: cls }, [`${st.lastError} (${timeAgo(st.lastErrorAt)})`]));
-    }
+    const status = h("div", { class: "section status" });
     app.append(status);
+    await renderStatus(status);
+    void chrome.runtime.sendMessage({ type: "flushNow" }).catch(() => null).then(() => renderStatus(status));
     app.append(await buildSettings(st));
     const search = h("input", { type: "search", placeholder: "Search your history\u2026" });
     app.append(h("div", { class: "section" }, [search]));

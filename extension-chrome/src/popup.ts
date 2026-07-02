@@ -96,6 +96,24 @@ async function renderAuth(errorMsg?: string): Promise<void> {
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+async function renderStatus(container: HTMLElement): Promise<void> {
+  const st = await getState();
+  const queue = await getQueue();
+  const children: (Node | string)[] = [
+    h("span", {}, [h("b", {}, [String(queue.length)]), " queued"]),
+    " · ",
+    h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"]),
+  ];
+  // Errors wear off: show only recent ones (with their age), styled as a muted
+  // notice when it's a recovered storage-trim rather than a real failure.
+  const ERROR_TTL_MS = 15 * 60_000;
+  if (st.lastError && st.lastErrorAt && Date.now() - st.lastErrorAt < ERROR_TTL_MS) {
+    const cls = /storage was full/i.test(st.lastError) ? "hint" : "error";
+    children.push(h("div", { class: cls }, [`${st.lastError} (${timeAgo(st.lastErrorAt)})`]));
+  }
+  container.replaceChildren(...children);
+}
+
 async function renderApp(): Promise<void> {
   const st = await getState();
   if (!st.token || !st.user) return renderAuth();
@@ -125,20 +143,22 @@ async function renderApp(): Promise<void> {
   );
 
   // status
-  const queue = await getQueue();
-  const status = h("div", { class: "section status" }, [
-    h("span", {}, [h("b", {}, [String(queue.length)]), " queued"]),
-    " · ",
-    h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"]),
-  ]);
-  // Errors wear off: show only recent ones (with their age), styled as a muted
-  // notice when it's a recovered storage-trim rather than a real failure.
-  const ERROR_TTL_MS = 15 * 60_000;
-  if (st.lastError && st.lastErrorAt && Date.now() - st.lastErrorAt < ERROR_TTL_MS) {
-    const cls = /storage was full/i.test(st.lastError) ? "hint" : "error";
-    status.append(h("div", { class: cls }, [`${st.lastError} (${timeAgo(st.lastErrorAt)})`]));
-  }
+  const status = h("div", { class: "section status" });
   app.append(status);
+  await renderStatus(status);
+
+  // Nudge a flush attempt every time the popup opens. On iOS, background
+  // execution can be suspended mid-drain (the extension only gets to run
+  // while Safari is resident) and only resumes on the next trigger — a
+  // capture or the 1-minute alarm, which can be delayed indefinitely if
+  // Safari isn't foregrounded. Opening the popup is a reliable moment the
+  // extension IS resident, so use it as an extra trigger. Fire-and-forget:
+  // don't block the initial render, just refresh the status line if it
+  // lands while the popup is still open.
+  void chrome.runtime
+    .sendMessage({ type: "flushNow" })
+    .catch(() => null)
+    .then(() => renderStatus(status));
 
   // settings (collapsible)
   app.append(await buildSettings(st));

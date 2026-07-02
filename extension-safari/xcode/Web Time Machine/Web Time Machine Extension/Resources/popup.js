@@ -215,6 +215,7 @@
   function tagError(op, e) {
     return new Error(`${op}: ${e?.message ?? e}`);
   }
+  var queueLock = Promise.resolve();
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };

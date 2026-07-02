@@ -85,6 +85,22 @@ function tagError(op: string, e: unknown): Error {
   return new Error(`${op}: ${(e as { message?: string } | null)?.message ?? e}`);
 }
 
+// Serializes read-modify-write access to the queue. Both enqueue() (a capture
+// arriving) and flush()'s post-push cleanup do getQueue() then setQueue() —
+// without this, one can read stale data while the other is mid-write, and the
+// loser's write clobbers the winner's: a captured page silently vanishes, or
+// (worse) a just-synced batch never actually leaves local storage and gets
+// re-pushed forever. Every queue read-modify-write must go through this.
+let queueLock: Promise<unknown> = Promise.resolve();
+export function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queueLock.then(fn, fn);
+  queueLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function getState(): Promise<ExtState> {
   const o = await chrome.storage.local.get(STATE_KEY);
   return { ...DEFAULT_STATE, ...((o[STATE_KEY] as Partial<ExtState>) ?? {}) };
@@ -152,10 +168,12 @@ export async function setQueue(q: CapturedPage[]): Promise<void> {
 }
 
 export async function enqueue(pages: CapturedPage[]): Promise<number> {
-  const q = await getQueue();
-  // De-dupe rapid re-captures of the same URL still sitting in the queue.
-  const urls = new Set(q.map((p) => p.url));
-  const fresh = pages.filter((p) => !urls.has(p.url));
-  if (fresh.length) await setQueue([...q, ...fresh]);
-  return fresh.length;
+  return withQueueLock(async () => {
+    const q = await getQueue();
+    // De-dupe rapid re-captures of the same URL still sitting in the queue.
+    const urls = new Set(q.map((p) => p.url));
+    const fresh = pages.filter((p) => !urls.has(p.url));
+    if (fresh.length) await setQueue([...q, ...fresh]);
+    return fresh.length;
+  });
 }

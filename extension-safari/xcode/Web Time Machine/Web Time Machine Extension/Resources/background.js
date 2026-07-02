@@ -187,6 +187,15 @@
   function tagError(op, e) {
     return new Error(`${op}: ${e?.message ?? e}`);
   }
+  var queueLock = Promise.resolve();
+  function withQueueLock(fn) {
+    const run = queueLock.then(fn, fn);
+    queueLock = run.then(
+      () => void 0,
+      () => void 0
+    );
+    return run;
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
@@ -241,11 +250,13 @@
     }
   }
   async function enqueue(pages) {
-    const q = await getQueue();
-    const urls = new Set(q.map((p) => p.url));
-    const fresh = pages.filter((p) => !urls.has(p.url));
-    if (fresh.length) await setQueue([...q, ...fresh]);
-    return fresh.length;
+    return withQueueLock(async () => {
+      const q = await getQueue();
+      const urls = new Set(q.map((p) => p.url));
+      const fresh = pages.filter((p) => !urls.has(p.url));
+      if (fresh.length) await setQueue([...q, ...fresh]);
+      return fresh.length;
+    });
   }
 
   // ../extension-chrome/src/background.ts
@@ -330,8 +341,17 @@
         const acked = new Set(batch.map((p) => p.id));
         await client.push({ deviceId, pages: batch });
         await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
-        const after = await getQueue();
-        await setQueue(after.filter((p) => !acked.has(p.id)));
+        const stuck = await withQueueLock(async () => {
+          const after = await getQueue();
+          await setQueue(after.filter((p) => !acked.has(p.id)));
+          const verify = await getQueue();
+          return verify.some((p) => acked.has(p.id));
+        });
+        if (stuck) {
+          throw new Error(
+            `sync: ${batch.length} page(s) landed on the server but local storage didn't drop them \u2014 will retry`
+          );
+        }
       }
     } catch (e) {
       const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : isQuotaError(e) ? `Device storage was full \u2014 oldest unsynced captures were trimmed. Sync continues. [${e.message?.slice(0, 100) ?? e}]` : String(e);

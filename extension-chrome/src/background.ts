@@ -2,7 +2,7 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
 import type { CapturedPage } from "@wtm/shared";
 import { deviceOwnerKey, PLATFORM } from "./config";
-import { enqueue, getQueue, getState, setQueue, setState } from "./storage";
+import { enqueue, getQueue, getState, isQuotaError, setQueue, setState } from "./storage";
 
 const FLUSH_ALARM = "wtm:flush";
 const BATCH = 50;
@@ -92,11 +92,18 @@ async function flush(): Promise<void> {
       const after = await getQueue();
       await setQueue(after.filter((p) => !acked.has(p.id)));
     }
-    await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null });
+    await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
   } catch (e) {
-    const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : String(e);
+    // Quota hits are recovered by design (the queue trims itself), so report
+    // them as what they are — a notice, not a scary raw platform error.
+    const msg =
+      e instanceof WtmApiError
+        ? `${e.status} ${e.message}`
+        : isQuotaError(e)
+          ? "Device storage was full — oldest unsynced captures were trimmed. Sync continues."
+          : String(e);
     try {
-      await setState({ lastError: msg });
+      await setState({ lastError: msg, lastErrorAt: Date.now() });
       if (e instanceof WtmApiError && e.status === 401) {
         // Token expired/invalid — drop it so the popup prompts a re-login, but
         // keep deviceId/deviceOwner so the same account reuses this node.

@@ -18,6 +18,8 @@ export interface ExtState {
   captureEnabled: boolean;
   lastSync: number | null;
   lastError: string | null;
+  /** When lastError was recorded; the popup stops showing errors after a TTL. */
+  lastErrorAt: number | null;
 }
 
 /** Key identifying which account a registered deviceId belongs to. */
@@ -34,4 +36,5 @@ export const DEFAULT_STATE: ExtState = {
   captureEnabled: true,
   lastSync: null,
   lastError: null,
+  lastErrorAt: null,
 };

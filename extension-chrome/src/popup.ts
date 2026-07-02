@@ -131,7 +131,13 @@ async function renderApp(): Promise<void> {
     " · ",
     h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"]),
   ]);
-  if (st.lastError) status.append(h("div", { class: "error" }, [st.lastError]));
+  // Errors wear off: show only recent ones (with their age), styled as a muted
+  // notice when it's a recovered storage-trim rather than a real failure.
+  const ERROR_TTL_MS = 15 * 60_000;
+  if (st.lastError && st.lastErrorAt && Date.now() - st.lastErrorAt < ERROR_TTL_MS) {
+    const cls = /storage was full/i.test(st.lastError) ? "hint" : "error";
+    status.append(h("div", { class: cls }, [`${st.lastError} (${timeAgo(st.lastErrorAt)})`]));
+  }
   app.append(status);
 
   // settings (collapsible)

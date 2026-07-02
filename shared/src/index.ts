@@ -4,6 +4,22 @@
 
 export const API_VERSION = 1;
 
+/** Production backend origin (clients allow overriding it at login). */
+export const DEFAULT_BACKEND = "https://api.webtm.io";
+
+/**
+ * Per-page readable-text cap. Capture truncates to this on-device and the
+ * backend clamps to the same value on push — one constant so they can't drift.
+ */
+export const MAX_TEXT_CHARS = 200_000;
+
+/** History-retention bounds enforced by the backend; clients pre-validate. */
+export const RETENTION_MIN_DAYS = 1;
+export const RETENTION_MAX_DAYS = 3650;
+export function isValidRetentionDays(d: number): boolean {
+  return Number.isInteger(d) && d >= RETENTION_MIN_DAYS && d <= RETENTION_MAX_DAYS;
+}
+
 /** Platform identifier for a registered node (device). */
 export type Platform = "chrome" | "safari-ios" | "web" | "cli" | string;
 

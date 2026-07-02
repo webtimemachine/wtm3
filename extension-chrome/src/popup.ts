@@ -1,6 +1,6 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
-import type { PageRecord, SearchHit } from "@wtm/shared";
-import { snippetHtml, timeAgo } from "@wtm/shared/format";
+import { isValidRetentionDays, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type PageRecord, type SearchHit } from "@wtm/shared";
+import { chooseSubline, snippetHtml, timeAgo } from "@wtm/shared/format";
 import { DEFAULT_BACKEND, deviceOwnerKey } from "./config";
 import { getQueue, getState, setState } from "./storage";
 
@@ -177,16 +177,16 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
   // History expiration
   const daysInput = h("input", {
     type: "number",
-    min: "1",
-    max: "3650",
+    min: String(RETENTION_MIN_DAYS),
+    max: String(RETENTION_MAX_DAYS),
     value: String(st.user?.retentionDays ?? 90),
   }) as HTMLInputElement;
   const daysBtn = h("button", { class: "secondary tiny" }, ["Save"]) as HTMLButtonElement;
   const daysMsg = h("span", { class: "hint" }, []);
   daysBtn.addEventListener("click", async () => {
     const d = parseInt(daysInput.value, 10);
-    if (!Number.isInteger(d) || d < 1 || d > 3650) {
-      daysMsg.textContent = "1–3650 days";
+    if (!isValidRetentionDays(d)) {
+      daysMsg.textContent = `${RETENTION_MIN_DAYS}–${RETENTION_MAX_DAYS} days`;
       return;
     }
     daysBtn.disabled = true;
@@ -254,10 +254,16 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
 }
 
 function renderHit(p: PageRecord | SearchHit, results: HTMLElement): HTMLElement {
-  const snippet =
-    "snippet" in p && p.snippet ? h("div", { class: "snippet", html: snippetHtml(p.snippet) }) : null;
-  const summary =
-    p.summary && (!("snippet" in p) || !p.snippet) ? h("div", { class: "summary" }, [p.summary]) : null;
+  // Shared snippet→summary→pending precedence (same decision as the web app).
+  const chosen = chooseSubline({ ...(("snippet" in p) && { snippet: p.snippet }), summary: p.summary, summaryStatus: p.summaryStatus });
+  const sub =
+    chosen.kind === "snippet"
+      ? h("div", { class: "snippet", html: snippetHtml(chosen.value) })
+      : chosen.kind === "summary"
+        ? h("div", { class: "summary" }, [chosen.value])
+        : chosen.kind === "pending"
+          ? h("div", { class: "summary hint" }, ["Summarizing…"])
+          : null;
 
   const del = h("button", { class: "secondary tiny", title: "Delete everywhere" }, ["Delete"]) as HTMLButtonElement;
   del.addEventListener("click", async () => {
@@ -273,8 +279,7 @@ function renderHit(p: PageRecord | SearchHit, results: HTMLElement): HTMLElement
   const children: (Node | string)[] = [
     h("a", { class: "title", href: p.url, target: "_blank", rel: "noreferrer" }, [p.title || p.url]),
   ];
-  if (summary) children.push(summary);
-  if (snippet) children.push(snippet);
+  if (sub) children.push(sub);
   children.push(
     h("div", { class: "meta" }, [
       h("span", { class: "url" }, [p.url]),

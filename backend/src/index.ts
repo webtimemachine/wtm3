@@ -12,15 +12,25 @@ import type {
   SyncPushResponse,
   UserInfo,
 } from "@wtm/shared";
+import { isValidRetentionDays, MAX_TEXT_CHARS, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS } from "@wtm/shared";
 import type { Env, Vars } from "./env";
 import { DUMMY_PASSWORD_HASH, hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
-import { contentHash, reserveSeq, rowToPage, textKey, type PageRow } from "./db";
+import {
+  contentHash,
+  purgeTextObjects,
+  reserveSeq,
+  rowToNode,
+  rowToPage,
+  textKey,
+  tombstonePageStmts,
+  type NodeRow,
+  type PageRow,
+} from "./db";
 import { toMatchQuery } from "./search";
 import { isKnownAdultDomain, summarizePages } from "./summary";
 
 const DAY_MS = 86_400_000;
 /** Server-side caps for /sync/push (defense against oversized/abusive payloads). */
-const MAX_TEXT_CHARS = 200_000;
 const MAX_ITEMS_PER_PUSH = 200;
 /** Per-user resource quotas — bound the account (and the Cloudflare bill), not just the request. */
 const MAX_NODES_PER_USER = 20;
@@ -237,8 +247,11 @@ app.patch("/settings", async (c) => {
 
   if (body?.retentionDays !== undefined) {
     const d = Number(body.retentionDays);
-    if (!Number.isInteger(d) || d < 1 || d > 3650)
-      return c.json({ error: "invalid_retention", message: "Retention must be 1–3650 days." }, 400);
+    if (!isValidRetentionDays(d))
+      return c.json(
+        { error: "invalid_retention", message: `Retention must be ${RETENTION_MIN_DAYS}–${RETENTION_MAX_DAYS} days.` },
+        400,
+      );
     sets.push(`retention_days = ?${binds.length + 1}`);
     binds.push(d);
     retentionChanged = d;
@@ -337,15 +350,8 @@ app.get("/nodes", async (c) => {
     "SELECT id, name, platform, created_at, last_seen_at FROM nodes WHERE user_id = ?1 ORDER BY last_seen_at DESC",
   )
     .bind(userId)
-    .all<{ id: string; name: string; platform: string; created_at: number; last_seen_at: number }>();
-  const nodes: NodeInfo[] = results.map((r) => ({
-    id: r.id,
-    name: r.name,
-    platform: r.platform,
-    createdAt: r.created_at,
-    lastSeenAt: r.last_seen_at,
-  }));
-  return c.json({ nodes });
+    .all<NodeRow>();
+  return c.json({ nodes: results.map(rowToNode) });
 });
 
 app.patch("/nodes/:id", async (c) => {
@@ -365,15 +371,8 @@ app.patch("/nodes/:id", async (c) => {
     "SELECT id, name, platform, created_at, last_seen_at FROM nodes WHERE id = ?1 AND user_id = ?2",
   )
     .bind(id, userId)
-    .first<{ id: string; name: string; platform: string; created_at: number; last_seen_at: number }>();
-  const node: NodeInfo = {
-    id: row!.id,
-    name: row!.name,
-    platform: row!.platform,
-    createdAt: row!.created_at,
-    lastSeenAt: row!.last_seen_at,
-  };
-  return c.json(node);
+    .first<NodeRow>();
+  return c.json(rowToNode(row!));
 });
 
 // ---------------------------------------------------------------------------
@@ -521,25 +520,14 @@ app.post("/sync/push", async (c) => {
     );
   }
 
-  for (const id of deletes) {
-    seq++;
-    stmts.push(
-      c.env.DB.prepare(
-        "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
-      ).bind(seq, now, id, userId),
-      c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
-    );
-  }
+  stmts.push(...tombstonePageStmts(c.env, userId, deletes, seq + 1, now));
+  seq += deletes.length;
 
   await c.env.DB.batch(stmts);
 
   // Purge R2 for deleted pages (best effort, in background).
   if (deletes.length) {
-    c.executionCtx.waitUntil(
-      Promise.all(deletes.map((id) => c.env.BUCKET.delete(textKey(userId, id)).catch(() => {}))).then(
-        () => undefined,
-      ),
-    );
+    c.executionCtx.waitUntil(purgeTextObjects(c.env, userId, deletes).then(() => undefined));
   }
 
   // Generate summaries in the background; this bumps seq further as they land.
@@ -690,13 +678,8 @@ app.delete("/pages/:id", async (c) => {
   if (!exists) return c.json({ error: "not_found", message: "Page not found." }, 404);
 
   const seq = await reserveSeq(c.env, userId, 1);
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
-    ).bind(seq, Date.now(), id, userId),
-    c.env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
-  ]);
-  c.executionCtx.waitUntil(c.env.BUCKET.delete(textKey(userId, id)).catch(() => {}));
+  await c.env.DB.batch(tombstonePageStmts(c.env, userId, [id], seq, Date.now()));
+  c.executionCtx.waitUntil(purgeTextObjects(c.env, userId, [id]).then(() => undefined));
 
   return c.json({ ok: true, id, seq });
 });
@@ -735,19 +718,8 @@ async function runRetention(env: Env): Promise<number> {
 
     for (const [userId, ids] of byUser) {
       const top = await reserveSeq(env, userId, ids.length);
-      let seq = top - ids.length;
-      const stmts: D1PreparedStatement[] = [];
-      for (const id of ids) {
-        seq++;
-        stmts.push(
-          env.DB.prepare(
-            "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
-          ).bind(seq, now, id, userId),
-          env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
-        );
-      }
-      await env.DB.batch(stmts);
-      await Promise.all(ids.map((id) => env.BUCKET.delete(textKey(userId, id)).catch(() => {})));
+      await env.DB.batch(tombstonePageStmts(env, userId, ids, top - ids.length + 1, now));
+      await purgeTextObjects(env, userId, ids);
       purged += ids.length;
     }
   }

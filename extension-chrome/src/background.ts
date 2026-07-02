@@ -6,6 +6,20 @@ import { enqueue, getQueue, getState, isQuotaError, setQueue, setState } from ".
 
 const FLUSH_ALARM = "wtm:flush";
 const BATCH = 50;
+// Cap the JSON payload of one push. 50 text-heavy mobile captures can exceed
+// several MB, which flaky mobile networks reject; smaller pushes land.
+const BATCH_SOFT_BYTES = 1_000_000;
+
+function takeBatch(queue: CapturedPage[]): CapturedPage[] {
+  const batch: CapturedPage[] = [];
+  let bytes = 0;
+  for (const p of queue.slice(0, BATCH)) {
+    bytes += (p.text?.length ?? 0) + 512;
+    if (batch.length && bytes > BATCH_SOFT_BYTES) break;
+    batch.push(p);
+  }
+  return batch;
+}
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
@@ -83,16 +97,18 @@ async function flush(): Promise<void> {
 
     // Drain in batches. Re-read storage after each push and remove only the
     // acked ids, so pages enqueued during an in-flight upload aren't clobbered.
+    // lastSync advances after every landed batch — "synced" means data reached
+    // the server, not that the queue happened to be empty at the same moment.
     while (true) {
       const current = await getQueue();
       if (!current.length) break;
-      const batch = current.slice(0, BATCH);
+      const batch = takeBatch(current);
       const acked = new Set(batch.map((p) => p.id));
       await client.push({ deviceId, pages: batch });
+      await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
       const after = await getQueue();
       await setQueue(after.filter((p) => !acked.has(p.id)));
     }
-    await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
   } catch (e) {
     // Quota hits are recovered by design (the queue trims itself), so report
     // them as what they are — a notice, not a scary raw platform error.
@@ -100,7 +116,7 @@ async function flush(): Promise<void> {
       e instanceof WtmApiError
         ? `${e.status} ${e.message}`
         : isQuotaError(e)
-          ? "Device storage was full — oldest unsynced captures were trimmed. Sync continues."
+          ? `Device storage was full — oldest unsynced captures were trimmed. Sync continues. [${(e as Error).message?.slice(0, 100) ?? e}]`
           : String(e);
     try {
       await setState({ lastError: msg, lastErrorAt: Date.now() });

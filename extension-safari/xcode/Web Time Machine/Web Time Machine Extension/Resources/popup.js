@@ -1,6 +1,12 @@
 "use strict";
 (() => {
   // ../shared/src/index.ts
+  var DEFAULT_BACKEND = "https://api.webtm.io";
+  var RETENTION_MIN_DAYS = 1;
+  var RETENTION_MAX_DAYS = 3650;
+  function isValidRetentionDays(d) {
+    return Number.isInteger(d) && d >= RETENTION_MIN_DAYS && d <= RETENTION_MAX_DAYS;
+  }
   var Routes = {
     register: "/auth/register",
     login: "/auth/login",
@@ -125,6 +131,12 @@
     const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return esc.replaceAll("&lt;mark&gt;", "<mark>").replaceAll("&lt;/mark&gt;", "</mark>");
   }
+  function chooseSubline(p) {
+    if (p.snippet) return { kind: "snippet", value: p.snippet };
+    if (p.summary) return { kind: "summary", value: p.summary };
+    if (p.summaryStatus === "pending") return { kind: "pending" };
+    return { kind: "none" };
+  }
   function timeAgo(ms) {
     const s = Math.round((Date.now() - ms) / 1e3);
     if (s < 60) return "just now";
@@ -138,7 +150,6 @@
   }
 
   // ../extension-chrome/src/config.ts
-  var DEFAULT_BACKEND = "https://api.webtm.io";
   function deviceOwnerKey(baseUrl, userId) {
     return `${baseUrl}|${userId}`;
   }
@@ -200,6 +211,9 @@
   function dropOldest(q, fraction) {
     return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
   }
+  function tagError(op, e) {
+    return new Error(`${op}: ${e?.message ?? e}`);
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
@@ -213,7 +227,7 @@
       } catch (e) {
         if (!isQuotaError(e)) throw e;
         const q = await getQueue();
-        if (q.length === 0) throw e;
+        if (q.length === 0) throw tagError("state write (queue already empty)", e);
         noteQuotaHit(byteSize(next) + byteSize(q));
         await setQueue(dropOldest(q, 0.25));
       }
@@ -245,7 +259,8 @@
         await chrome.storage.local.set({ [QUEUE_KEY]: payload });
         return;
       } catch (e) {
-        if (!isQuotaError(e) || pages.length === 0) throw e;
+        if (!isQuotaError(e)) throw e;
+        if (pages.length === 0) throw tagError("queue write (even empty queue rejected)", e);
         noteQuotaHit(byteSize(payload));
         pages = dropOldest(pages, 0.25);
         payload = await encodeQueue(pages);
@@ -382,16 +397,16 @@
     });
     const daysInput = h("input", {
       type: "number",
-      min: "1",
-      max: "3650",
+      min: String(RETENTION_MIN_DAYS),
+      max: String(RETENTION_MAX_DAYS),
       value: String(st.user?.retentionDays ?? 90)
     });
     const daysBtn = h("button", { class: "secondary tiny" }, ["Save"]);
     const daysMsg = h("span", { class: "hint" }, []);
     daysBtn.addEventListener("click", async () => {
       const d = parseInt(daysInput.value, 10);
-      if (!Number.isInteger(d) || d < 1 || d > 3650) {
-        daysMsg.textContent = "1\u20133650 days";
+      if (!isValidRetentionDays(d)) {
+        daysMsg.textContent = `${RETENTION_MIN_DAYS}\u2013${RETENTION_MAX_DAYS} days`;
         return;
       }
       daysBtn.disabled = true;
@@ -453,8 +468,8 @@
     return h("details", { class: "section settings" }, children);
   }
   function renderHit(p, results) {
-    const snippet = "snippet" in p && p.snippet ? h("div", { class: "snippet", html: snippetHtml(p.snippet) }) : null;
-    const summary = p.summary && (!("snippet" in p) || !p.snippet) ? h("div", { class: "summary" }, [p.summary]) : null;
+    const chosen = chooseSubline({ ..."snippet" in p && { snippet: p.snippet }, summary: p.summary, summaryStatus: p.summaryStatus });
+    const sub = chosen.kind === "snippet" ? h("div", { class: "snippet", html: snippetHtml(chosen.value) }) : chosen.kind === "summary" ? h("div", { class: "summary" }, [chosen.value]) : chosen.kind === "pending" ? h("div", { class: "summary hint" }, ["Summarizing\u2026"]) : null;
     const del = h("button", { class: "secondary tiny", title: "Delete everywhere" }, ["Delete"]);
     del.addEventListener("click", async () => {
       del.disabled = true;
@@ -468,8 +483,7 @@
     const children = [
       h("a", { class: "title", href: p.url, target: "_blank", rel: "noreferrer" }, [p.title || p.url])
     ];
-    if (summary) children.push(summary);
-    if (snippet) children.push(snippet);
+    if (sub) children.push(sub);
     children.push(
       h("div", { class: "meta" }, [
         h("span", { class: "url" }, [p.url]),

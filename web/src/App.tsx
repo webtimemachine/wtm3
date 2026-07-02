@@ -1,6 +1,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WtmApiError } from "@wtm/shared/api";
-import type { NodeInfo, PageRecord, SearchHit, UserInfo } from "@wtm/shared";
+import {
+  isValidRetentionDays,
+  RETENTION_MAX_DAYS,
+  RETENTION_MIN_DAYS,
+  type NodeInfo,
+  type PageRecord,
+  type SearchHit,
+  type UserInfo,
+} from "@wtm/shared";
+import { chooseSubline } from "@wtm/shared/format";
 import {
   DEFAULT_BACKEND,
   clientFor,
@@ -494,13 +503,16 @@ function PageCard({
   onViewText: () => void;
 }) {
   const hit = page as SearchHit;
-  const sub = hit.snippet ? (
-    <p className="sub snippet" dangerouslySetInnerHTML={{ __html: snippetHtml(hit.snippet) }} />
-  ) : page.summary ? (
-    <p className="sub">{page.summary}</p>
-  ) : page.summaryStatus === "pending" ? (
-    <p className="sub muted">Summarizing…</p>
-  ) : null;
+  // Shared snippet→summary→pending precedence (same decision as the extension popup).
+  const chosen = chooseSubline({ snippet: hit.snippet, summary: page.summary, summaryStatus: page.summaryStatus });
+  const sub =
+    chosen.kind === "snippet" ? (
+      <p className="sub snippet" dangerouslySetInnerHTML={{ __html: snippetHtml(chosen.value) }} />
+    ) : chosen.kind === "summary" ? (
+      <p className="sub">{chosen.value}</p>
+    ) : chosen.kind === "pending" ? (
+      <p className="sub muted">Summarizing…</p>
+    ) : null;
 
   return (
     <article className="hit">
@@ -625,8 +637,8 @@ function SettingsModal({
 
   async function saveRetention() {
     const d = parseInt(days, 10);
-    if (!Number.isInteger(d) || d < 1 || d > 3650) {
-      setError("Retention must be 1–3650 days.");
+    if (!isValidRetentionDays(d)) {
+      setError(`Retention must be ${RETENTION_MIN_DAYS}–${RETENTION_MAX_DAYS} days.`);
       return;
     }
     setBusy(true);
@@ -678,8 +690,8 @@ function SettingsModal({
           <div className="row">
             <input
               type="number"
-              min={1}
-              max={3650}
+              min={RETENTION_MIN_DAYS}
+              max={RETENTION_MAX_DAYS}
               value={days}
               onChange={(e) => setDays(e.target.value)}
             />

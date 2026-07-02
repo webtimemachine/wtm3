@@ -1863,7 +1863,11 @@
 
   // ../shared/src/capture.ts
   var import_readability = __toESM(require_readability(), 1);
+
+  // ../shared/src/index.ts
   var MAX_TEXT_CHARS = 2e5;
+
+  // ../shared/src/capture.ts
   var SKIP_URL_SCHEMES = ["about:", "chrome:", "chrome-extension:", "moz-extension:", "edge:", "view-source:", "devtools:"];
   function isCapturableUrl(url) {
     if (!url) return false;

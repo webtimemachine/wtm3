@@ -10,6 +10,29 @@ export function snippetHtml(s: string): string {
   return esc.replaceAll("&lt;mark&gt;", "<mark>").replaceAll("&lt;/mark&gt;", "</mark>");
 }
 
+/**
+ * What to show under a result title. One shared precedence — search snippet,
+ * then AI summary, then a "summary pending" placeholder — so the web dashboard
+ * and the extension popups can't drift apart on the decision (the markup stays
+ * per-platform).
+ */
+export type Subline =
+  | { kind: "snippet"; value: string }
+  | { kind: "summary"; value: string }
+  | { kind: "pending" }
+  | { kind: "none" };
+
+export function chooseSubline(p: {
+  snippet?: string;
+  summary?: string | null;
+  summaryStatus?: string;
+}): Subline {
+  if (p.snippet) return { kind: "snippet", value: p.snippet };
+  if (p.summary) return { kind: "summary", value: p.summary };
+  if (p.summaryStatus === "pending") return { kind: "pending" };
+  return { kind: "none" };
+}
+
 /** Compact relative time, e.g. "just now", "5m ago", "3h ago", "2d ago". */
 export function timeAgo(ms: number): string {
   const s = Math.round((Date.now() - ms) / 1000);

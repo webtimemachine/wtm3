@@ -1,7 +1,7 @@
 {
   "name": "webtimemachine",
   "private": true,
-  "version": "3.1.2",
+  "version": "3.1.3",
   "description": "Web Time Machine v3 — passively record, sync, search, and summarize your browsing history across devices via one Cloudflare-native backend.",
   "packageManager": "pnpm@10.32.1",
   "engines": {
@@ -21,6 +21,10 @@
     "typescript": "^5.7.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "sharp"
+    ]
   }
 }

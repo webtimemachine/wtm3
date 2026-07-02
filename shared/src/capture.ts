@@ -3,6 +3,7 @@
 // fallback. Pure-ish: it clones the document so the live page is never mutated.
 
 import { Readability } from "@mozilla/readability";
+import { MAX_TEXT_CHARS } from "./index";
 
 export interface CaptureResult {
   title: string;
@@ -12,8 +13,8 @@ export interface CaptureResult {
   lang: string | null;
 }
 
-/** Max characters of readable text we keep per page. Keeps payloads sane. */
-export const MAX_TEXT_CHARS = 200_000;
+// Re-exported for existing importers; the definition lives with the wire contract.
+export { MAX_TEXT_CHARS };
 
 const SKIP_URL_SCHEMES = ["about:", "chrome:", "chrome-extension:", "moz-extension:", "edge:", "view-source:", "devtools:"];
 

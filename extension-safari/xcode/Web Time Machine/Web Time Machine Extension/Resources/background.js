@@ -1,6 +1,7 @@
 "use strict";
 (() => {
   // ../shared/src/index.ts
+  var DEFAULT_BACKEND = "https://api.webtm.io";
   var Routes = {
     register: "/auth/register",
     login: "/auth/login",
@@ -121,7 +122,6 @@
   };
 
   // ../extension-chrome/src/config.ts
-  var DEFAULT_BACKEND = "https://api.webtm.io";
   var PLATFORM = true ? "safari-ios" : "chrome";
   function deviceOwnerKey(baseUrl, userId) {
     return `${baseUrl}|${userId}`;
@@ -184,6 +184,9 @@
   function dropOldest(q, fraction) {
     return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
   }
+  function tagError(op, e) {
+    return new Error(`${op}: ${e?.message ?? e}`);
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
@@ -197,7 +200,7 @@
       } catch (e) {
         if (!isQuotaError(e)) throw e;
         const q = await getQueue();
-        if (q.length === 0) throw e;
+        if (q.length === 0) throw tagError("state write (queue already empty)", e);
         noteQuotaHit(byteSize(next) + byteSize(q));
         await setQueue(dropOldest(q, 0.25));
       }
@@ -229,7 +232,8 @@
         await chrome.storage.local.set({ [QUEUE_KEY]: payload });
         return;
       } catch (e) {
-        if (!isQuotaError(e) || pages.length === 0) throw e;
+        if (!isQuotaError(e)) throw e;
+        if (pages.length === 0) throw tagError("queue write (even empty queue rejected)", e);
         noteQuotaHit(byteSize(payload));
         pages = dropOldest(pages, 0.25);
         payload = await encodeQueue(pages);
@@ -247,6 +251,17 @@
   // ../extension-chrome/src/background.ts
   var FLUSH_ALARM = "wtm:flush";
   var BATCH = 50;
+  var BATCH_SOFT_BYTES = 1e6;
+  function takeBatch(queue) {
+    const batch = [];
+    let bytes = 0;
+    for (const p of queue.slice(0, BATCH)) {
+      bytes += (p.text?.length ?? 0) + 512;
+      if (batch.length && bytes > BATCH_SOFT_BYTES) break;
+      batch.push(p);
+    }
+    return batch;
+  }
   var flushTimer = null;
   var flushing = false;
   var cachedNode = null;
@@ -311,15 +326,15 @@
       while (true) {
         const current = await getQueue();
         if (!current.length) break;
-        const batch = current.slice(0, BATCH);
+        const batch = takeBatch(current);
         const acked = new Set(batch.map((p) => p.id));
         await client.push({ deviceId, pages: batch });
+        await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
         const after = await getQueue();
         await setQueue(after.filter((p) => !acked.has(p.id)));
       }
-      await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
     } catch (e) {
-      const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : isQuotaError(e) ? "Device storage was full \u2014 oldest unsynced captures were trimmed. Sync continues." : String(e);
+      const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : isQuotaError(e) ? `Device storage was full \u2014 oldest unsynced captures were trimmed. Sync continues. [${e.message?.slice(0, 100) ?? e}]` : String(e);
       try {
         await setState({ lastError: msg, lastErrorAt: Date.now() });
         if (e instanceof WtmApiError && e.status === 401) {

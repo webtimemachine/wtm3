@@ -1,3 +1,4 @@
+import { hostname } from "@wtm/shared/format";
 import type { Env } from "./env";
 import { reserveSeq } from "./db";
 
@@ -13,12 +14,9 @@ const ADULT_DOMAINS = [
 
 /** Heuristic: is this URL on a well-known adult domain? */
 export function isKnownAdultDomain(url: string): boolean {
-  try {
-    const h = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-    return ADULT_DOMAINS.some((d) => h === d || h.endsWith("." + d));
-  } catch {
-    return false;
-  }
+  // hostname() passes non-URLs through unchanged — those must not match.
+  const h = hostname(url);
+  return h !== url && ADULT_DOMAINS.some((d) => h === d || h.endsWith("." + d));
 }
 
 function extractJson(s: string): { summary?: unknown; adult?: unknown } | null {

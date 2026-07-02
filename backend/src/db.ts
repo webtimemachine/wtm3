@@ -1,4 +1,4 @@
-import type { PageRecord, SummaryStatus } from "@wtm/shared";
+import type { NodeInfo, PageRecord, SummaryStatus } from "@wtm/shared";
 import type { Env } from "./env";
 
 /** Shape of a `pages` row as returned by D1. */
@@ -47,9 +47,55 @@ export function rowToPage(r: PageRow): PageRecord {
   };
 }
 
+/** Shape of a `nodes` row as returned by D1. */
+export interface NodeRow {
+  id: string;
+  name: string;
+  platform: string;
+  created_at: number;
+  last_seen_at: number;
+}
+
+export function rowToNode(r: NodeRow): NodeInfo {
+  return {
+    id: r.id,
+    name: r.name,
+    platform: r.platform,
+    createdAt: r.created_at,
+    lastSeenAt: r.last_seen_at,
+  };
+}
+
 /** R2 object key for a page's full readable text. */
 export function textKey(userId: string, pageId: string): string {
   return `text/${userId}/${pageId}`;
+}
+
+/**
+ * Statements that soft-delete pages: tombstone the row (clearing text
+ * bookkeeping) and drop it from the FTS index. The single definition all three
+ * delete paths (sync push, DELETE /pages/:id, retention cron) share — pass the
+ * first seq of a range already reserved via reserveSeq. Pair with
+ * purgeTextObjects for the R2 side.
+ */
+export function tombstonePageStmts(
+  env: Env,
+  userId: string,
+  ids: string[],
+  firstSeq: number,
+  now: number,
+): D1PreparedStatement[] {
+  return ids.flatMap((id, i) => [
+    env.DB.prepare(
+      "UPDATE pages SET deleted=1, has_text=0, r2_key=NULL, text_bytes=0, seq=?1, updated_at=?2 WHERE id=?3 AND user_id=?4",
+    ).bind(firstSeq + i, now, id, userId),
+    env.DB.prepare("DELETE FROM pages_fts WHERE page_id = ?1 AND user_id = ?2").bind(id, userId),
+  ]);
+}
+
+/** Best-effort R2 cleanup of deleted pages' text blobs. */
+export function purgeTextObjects(env: Env, userId: string, ids: string[]): Promise<unknown> {
+  return Promise.all(ids.map((id) => env.BUCKET.delete(textKey(userId, id)).catch(() => {})));
 }
 
 /**

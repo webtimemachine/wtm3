@@ -1,32 +1,15 @@
-// Builds the Safari web-extension resources by reusing the Chrome extension's
-// source (content/background/popup) with the platform define set to "safari-ios".
-// Output goes to wtm-extension/, which `convert.sh` feeds to the Xcode converter.
+// iOS Safari: classic (non-module) worker, no source maps in shipped resources.
+// Output feeds the committed Xcode Resources dir via scripts/sync-resources.mjs.
+// Shared pipeline in ../scripts.
 import { build } from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { buildExtension } from "../scripts/build-extension.mjs";
 
-const CHROME = "../extension-chrome";
-const outdir = "wtm-extension";
-
-await rm(outdir, { recursive: true, force: true });
-await mkdir(outdir, { recursive: true });
-
-const common = {
-  bundle: true,
-  sourcemap: false, // no source maps in the shipped Safari extension resources
+await buildExtension(build, {
+  outdir: "wtm-extension",
+  platform: "safari-ios",
   target: "safari16",
-  logLevel: "info",
-  define: { __WTM_PLATFORM__: JSON.stringify("safari-ios") },
-};
+  sourcemap: false,
+  label: "Safari web extension",
+});
 
-await build({ ...common, entryPoints: { content: `${CHROME}/src/content.ts` }, format: "iife", outfile: `${outdir}/content.js` });
-// Safari: classic (non-module) service worker — avoids the unsupported `type: module`.
-await build({ ...common, entryPoints: { background: `${CHROME}/src/background.ts` }, format: "iife", outfile: `${outdir}/background.js` });
-await build({ ...common, entryPoints: { popup: `${CHROME}/src/popup.ts` }, format: "iife", outfile: `${outdir}/popup.js` });
-
-await cp("manifest.json", `${outdir}/manifest.json`);
-await cp(`${CHROME}/src/popup.html`, `${outdir}/popup.html`);
-await cp(`${CHROME}/src/popup.css`, `${outdir}/popup.css`);
-await cp(`${CHROME}/icons`, `${outdir}/icons`, { recursive: true });
-
-console.log(`✅ built Safari web extension -> ${outdir}/`);
-console.log("   Next: pnpm --filter @wtm/extension-safari convert  (needs full Xcode)");
+console.log("   Next: pnpm --filter @wtm/extension-safari sync-resources  (updates the committed Xcode Resources)");

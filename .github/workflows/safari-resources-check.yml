@@ -1,0 +1,40 @@
+name: Safari resources in sync
+
+# The iOS Safari extension ships from a COMMITTED build of extension-chrome/src
+# (extension-safari/xcode/.../Resources). A source edit that forgets the Safari
+# rebuild would silently ship a stale extension on the next ios-v* tag — this
+# rebuilds and fails if the committed copy doesn't match.
+on:
+  pull_request:
+    paths:
+      - "extension-chrome/src/**"
+      - "shared/src/**"
+      - "extension-safari/**"
+      - "scripts/build-extension.mjs"
+  push:
+    branches: [main]
+    paths:
+      - "extension-chrome/src/**"
+      - "shared/src/**"
+      - "extension-safari/**"
+      - "scripts/build-extension.mjs"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wtm/extension-safari build
+      - run: pnpm --filter @wtm/extension-safari sync-resources
+      - name: Fail if the committed Resources copy is stale
+        run: |
+          if ! git diff --exit-code -- "extension-safari/xcode/Web Time Machine/Web Time Machine Extension/Resources"; then
+            echo "::error::Committed Safari Resources are stale. Run: pnpm --filter @wtm/extension-safari build && pnpm --filter @wtm/extension-safari sync-resources — then commit the result."
+            exit 1
+          fi

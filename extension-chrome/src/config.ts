@@ -1,7 +1,7 @@
-import type { Platform, UserInfo } from "@wtm/shared";
+import { DEFAULT_BACKEND, type Platform, type UserInfo } from "@wtm/shared";
 
 /** Default backend (production custom domain). Overridable in the popup. */
-export const DEFAULT_BACKEND = "https://api.webtm.io";
+export { DEFAULT_BACKEND };
 
 // Injected at build time via esbuild `define`.
 declare const __WTM_PLATFORM__: string | undefined;

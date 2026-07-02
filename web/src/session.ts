@@ -1,7 +1,7 @@
 import { WtmClient } from "@wtm/shared/api";
-import type { UserInfo } from "@wtm/shared";
+import { DEFAULT_BACKEND, type UserInfo } from "@wtm/shared";
 
-export const DEFAULT_BACKEND = "https://api.webtm.io";
+export { DEFAULT_BACKEND };
 const KEY = "wtm:web:session";
 
 export interface Session {

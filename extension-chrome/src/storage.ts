@@ -80,6 +80,11 @@ function dropOldest(q: CapturedPage[], fraction: number): CapturedPage[] {
   return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
 }
 
+/** Prefix an error with which operation hit it, preserving the original text. */
+function tagError(op: string, e: unknown): Error {
+  return new Error(`${op}: ${(e as { message?: string } | null)?.message ?? e}`);
+}
+
 export async function getState(): Promise<ExtState> {
   const o = await chrome.storage.local.get(STATE_KEY);
   return { ...DEFAULT_STATE, ...((o[STATE_KEY] as Partial<ExtState>) ?? {}) };
@@ -97,7 +102,7 @@ export async function setState(patch: Partial<ExtState>): Promise<ExtState> {
     } catch (e) {
       if (!isQuotaError(e)) throw e;
       const q = await getQueue();
-      if (q.length === 0) throw e;
+      if (q.length === 0) throw tagError("state write (queue already empty)", e);
       noteQuotaHit(byteSize(next) + byteSize(q));
       await setQueue(dropOldest(q, 0.25));
     }
@@ -137,7 +142,8 @@ export async function setQueue(q: CapturedPage[]): Promise<void> {
       await chrome.storage.local.set({ [QUEUE_KEY]: payload });
       return;
     } catch (e) {
-      if (!isQuotaError(e) || pages.length === 0) throw e;
+      if (!isQuotaError(e)) throw e;
+      if (pages.length === 0) throw tagError("queue write (even empty queue rejected)", e);
       noteQuotaHit(byteSize(payload));
       pages = dropOldest(pages, 0.25);
       payload = await encodeQueue(pages);

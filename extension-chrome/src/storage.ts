@@ -28,9 +28,52 @@ function byteSize(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
-function isQuotaError(e: unknown): boolean {
+export function isQuotaError(e: unknown): boolean {
   const s = `${(e as { message?: string } | null)?.message ?? e}`.toLowerCase();
   return s.includes("quota") || s.includes("exceeded");
+}
+
+// --- queue compression -------------------------------------------------------
+// Readable page text gzips ~3-5x, so storing the queue compressed multiplies
+// how many captures fit under the platform quota (the win that matters on
+// iOS). Values in storage.local must be JSON-safe, hence base64. Platforms
+// without CompressionStream fall back to the legacy plain-array format, which
+// getQueue still accepts.
+
+const hasCompression =
+  typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+
+function bufToB64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+}
+
+function b64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(new ArrayBuffer(bin.length));
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function gzipText(text: string): Promise<string> {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  return bufToB64(await new Response(stream).arrayBuffer());
+}
+
+async function gunzipText(b64: string): Promise<string> {
+  const stream = new Blob([b64ToBytes(b64)]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+}
+
+type QueueEnvelope = { v: 1; gz: string };
+
+async function encodeQueue(pages: CapturedPage[]): Promise<CapturedPage[] | QueueEnvelope> {
+  if (!hasCompression) return pages;
+  return { v: 1, gz: await gzipText(JSON.stringify(pages)) };
 }
 
 function dropOldest(q: CapturedPage[], fraction: number): CapturedPage[] {
@@ -63,28 +106,41 @@ export async function setState(patch: Partial<ExtState>): Promise<ExtState> {
 
 export async function getQueue(): Promise<CapturedPage[]> {
   const o = await chrome.storage.local.get(QUEUE_KEY);
-  return (o[QUEUE_KEY] as CapturedPage[]) ?? [];
+  const raw = o[QUEUE_KEY];
+  if (Array.isArray(raw)) return raw as CapturedPage[]; // legacy / no-compression format
+  if (raw && typeof raw === "object" && (raw as QueueEnvelope).v === 1) {
+    try {
+      return JSON.parse(await gunzipText((raw as QueueEnvelope).gz)) as CapturedPage[];
+    } catch {
+      return []; // corrupted envelope — drop the buffer rather than wedge capture
+    }
+  }
+  return [];
 }
 
 export async function setQueue(q: CapturedPage[]): Promise<void> {
-  // Soft-trim the oldest captures until under the byte budget (the smaller of
-  // the static soft budget and 75% of any observed real quota).
+  // Soft-trim the oldest captures until the stored (compressed) payload is
+  // under the byte budget (the smaller of the static soft budget and 75% of
+  // any observed real quota).
   const budget = Math.min(QUEUE_SOFT_BYTES, quotaCeilingBytes ?? Number.POSITIVE_INFINITY);
   let pages = q;
-  while (pages.length > 1 && byteSize(pages) > budget) {
+  let payload = await encodeQueue(pages);
+  while (pages.length > 1 && byteSize(payload) > budget) {
     pages = dropOldest(pages, 0.1);
+    payload = await encodeQueue(pages);
   }
   // Write. If the platform's real quota is still exceeded, record where the
   // ceiling is, keep dropping the oldest captures, and retry; as a last resort
   // store an empty queue so capture never throws.
   for (;;) {
     try {
-      await chrome.storage.local.set({ [QUEUE_KEY]: pages });
+      await chrome.storage.local.set({ [QUEUE_KEY]: payload });
       return;
     } catch (e) {
       if (!isQuotaError(e) || pages.length === 0) throw e;
-      noteQuotaHit(byteSize(pages));
+      noteQuotaHit(byteSize(payload));
       pages = dropOldest(pages, 0.25);
+      payload = await encodeQueue(pages);
     }
   }
 }

@@ -150,7 +150,8 @@
     deviceOwner: null,
     captureEnabled: true,
     lastSync: null,
-    lastError: null
+    lastError: null,
+    lastErrorAt: null
   };
 
   // ../extension-chrome/src/storage.ts
@@ -168,6 +169,33 @@
   function isQuotaError(e) {
     const s = `${e?.message ?? e}`.toLowerCase();
     return s.includes("quota") || s.includes("exceeded");
+  }
+  var hasCompression = typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+  function bufToB64(buf) {
+    const bytes = new Uint8Array(buf);
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 32768) {
+      s += String.fromCharCode(...bytes.subarray(i, i + 32768));
+    }
+    return btoa(s);
+  }
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(new ArrayBuffer(bin.length));
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  async function gzipText(text) {
+    const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+    return bufToB64(await new Response(stream).arrayBuffer());
+  }
+  async function gunzipText(b64) {
+    const stream = new Blob([b64ToBytes(b64)]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Response(stream).text();
+  }
+  async function encodeQueue(pages) {
+    if (!hasCompression) return pages;
+    return { v: 1, gz: await gzipText(JSON.stringify(pages)) };
   }
   function dropOldest(q, fraction) {
     return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
@@ -193,22 +221,34 @@
   }
   async function getQueue() {
     const o = await chrome.storage.local.get(QUEUE_KEY);
-    return o[QUEUE_KEY] ?? [];
+    const raw = o[QUEUE_KEY];
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object" && raw.v === 1) {
+      try {
+        return JSON.parse(await gunzipText(raw.gz));
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
   async function setQueue(q) {
     const budget = Math.min(QUEUE_SOFT_BYTES, quotaCeilingBytes ?? Number.POSITIVE_INFINITY);
     let pages = q;
-    while (pages.length > 1 && byteSize(pages) > budget) {
+    let payload = await encodeQueue(pages);
+    while (pages.length > 1 && byteSize(payload) > budget) {
       pages = dropOldest(pages, 0.1);
+      payload = await encodeQueue(pages);
     }
     for (; ; ) {
       try {
-        await chrome.storage.local.set({ [QUEUE_KEY]: pages });
+        await chrome.storage.local.set({ [QUEUE_KEY]: payload });
         return;
       } catch (e) {
         if (!isQuotaError(e) || pages.length === 0) throw e;
-        noteQuotaHit(byteSize(pages));
+        noteQuotaHit(byteSize(payload));
         pages = dropOldest(pages, 0.25);
+        payload = await encodeQueue(pages);
       }
     }
   }
@@ -309,7 +349,11 @@
       " \xB7 ",
       h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"])
     ]);
-    if (st.lastError) status.append(h("div", { class: "error" }, [st.lastError]));
+    const ERROR_TTL_MS = 15 * 6e4;
+    if (st.lastError && st.lastErrorAt && Date.now() - st.lastErrorAt < ERROR_TTL_MS) {
+      const cls = /storage was full/i.test(st.lastError) ? "hint" : "error";
+      status.append(h("div", { class: cls }, [`${st.lastError} (${timeAgo(st.lastErrorAt)})`]));
+    }
     app.append(status);
     app.append(await buildSettings(st));
     const search = h("input", { type: "search", placeholder: "Search your history\u2026" });

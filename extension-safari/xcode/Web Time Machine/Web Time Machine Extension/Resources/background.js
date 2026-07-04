@@ -354,7 +354,12 @@
         }
       }
     } catch (e) {
-      const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : isQuotaError(e) ? `Device storage was full \u2014 oldest unsynced captures were trimmed. Sync continues. [${e.message?.slice(0, 100) ?? e}]` : String(e);
+      const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : isQuotaError(e) ? (
+        // "even empty queue rejected" means the trim-and-retry already gave
+        // up — the device's whole storage allotment for this extension is
+        // full, not just the queue. Nothing here will self-heal; say so.
+        /even empty/i.test(e.message ?? "") ? `Device storage is full for this extension \u2014 capture is paused. Free up storage on your device (Settings \u2192 General \u2192 iPhone Storage) or remove and reinstall the extension, then try again.` : `Device storage was full \u2014 oldest unsynced captures were trimmed. Sync continues. [${e.message?.slice(0, 100) ?? e}]`
+      ) : String(e);
       try {
         await setState({ lastError: msg, lastErrorAt: Date.now() });
         if (e instanceof WtmApiError && e.status === 401) {

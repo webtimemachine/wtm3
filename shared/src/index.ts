@@ -75,6 +75,29 @@ export interface NodeInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostics — self-reported client state for support/debugging
+// ---------------------------------------------------------------------------
+
+/** A snapshot of local sync state a user (or the client itself) can report. */
+export interface DiagnosticReport {
+  platform: Platform;
+  extensionVersion: string;
+  /** Epoch ms when the snapshot was taken (device clock). */
+  reportedAt: number;
+  deviceId: string | null;
+  queueLength: number;
+  queueRawBytes: number;
+  queueStoredBytes: number;
+  /** The learned real-quota estimate storage.ts falls back to, if any. */
+  quotaCeilingBytes: number | null;
+  lastSync: number | null;
+  lastError: string | null;
+  lastErrorAt: number | null;
+  /** Optional free-text note from the user describing what they saw. */
+  note?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Pages — capture + sync
 // ---------------------------------------------------------------------------
 
@@ -195,5 +218,6 @@ export const Routes = {
   recent: "/pages",
   page: (id: string) => `/pages/${id}`,
   pageText: (id: string) => `/pages/${id}/text`,
+  diagnostics: "/diagnostics",
   health: "/health",
 } as const;

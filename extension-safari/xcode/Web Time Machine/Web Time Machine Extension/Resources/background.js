@@ -15,6 +15,7 @@
     recent: "/pages",
     page: (id) => `/pages/${id}`,
     pageText: (id) => `/pages/${id}/text`,
+    diagnostics: "/diagnostics",
     health: "/health"
   };
 
@@ -118,6 +119,10 @@
     }
     async deletePage(id) {
       await this.req("DELETE", Routes.page(id));
+    }
+    // --- diagnostics ---
+    async reportDiagnostics(report) {
+      await this.req("POST", Routes.diagnostics, report);
     }
   };
 

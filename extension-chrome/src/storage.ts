@@ -33,6 +33,32 @@ export function isQuotaError(e: unknown): boolean {
   return s.includes("quota") || s.includes("exceeded");
 }
 
+/** The real-quota estimate learned from a prior failed write, if any. */
+export function getQuotaCeiling(): number | null {
+  return quotaCeilingBytes;
+}
+
+/**
+ * Actual browser-reported storage.local usage, if the platform exposes it
+ * (getBytesInUse is optional in the WebExtension spec — Safari's support is
+ * exactly the open question a "storage full but we can't see why" report
+ * needs answered). Returns null rather than throwing when unavailable.
+ */
+export async function getBytesInUse(): Promise<{ total: number | null; state: number | null; queue: number | null }> {
+  const fn = (chrome.storage.local as { getBytesInUse?: (k?: string | string[]) => Promise<number> })
+    .getBytesInUse;
+  if (typeof fn !== "function") return { total: null, state: null, queue: null };
+  const safe = async (k?: string | string[]) => {
+    try {
+      return await fn.call(chrome.storage.local, k);
+    } catch {
+      return null;
+    }
+  };
+  const [total, state, queue] = await Promise.all([safe(), safe(STATE_KEY), safe(QUEUE_KEY)]);
+  return { total, state, queue };
+}
+
 // --- queue compression -------------------------------------------------------
 // Readable page text gzips ~3-5x, so storing the queue compressed multiplies
 // how many captures fit under the platform quota (the win that matters on
@@ -137,6 +163,24 @@ export async function getQueue(): Promise<CapturedPage[]> {
     }
   }
   return [];
+}
+
+/**
+ * User-triggered escape hatch: discard the local queue entirely. Uses
+ * remove() rather than set({[QUEUE_KEY]: []}) — a write that shrinks data can
+ * still be rejected under a size- or rate-based quota (confirmed live: a
+ * device rejected writing an empty queue), whereas removing a key is a
+ * strictly lighter operation with nothing new to persist. Falls back to a
+ * plain-array set() if remove() itself is ever unavailable.
+ */
+export async function clearQueue(): Promise<void> {
+  return withQueueLock(async () => {
+    if (typeof chrome.storage.local.remove === "function") {
+      await chrome.storage.local.remove(QUEUE_KEY);
+      return;
+    }
+    await chrome.storage.local.set({ [QUEUE_KEY]: [] });
+  });
 }
 
 export async function setQueue(q: CapturedPage[]): Promise<void> {

@@ -219,6 +219,7 @@ const protectedPaths = [
   "/search",
   "/pages",
   "/pages/*",
+  "/diagnostics",
 ];
 for (const p of protectedPaths) {
   app.use(p, async (c, next) => {
@@ -682,6 +683,32 @@ app.delete("/pages/:id", async (c) => {
   c.executionCtx.waitUntil(purgeTextObjects(c.env, userId, [id]).then(() => undefined));
 
   return c.json({ ok: true, id, seq });
+});
+
+// ---------------------------------------------------------------------------
+// Diagnostics — self-reported client state (e.g. the popup's "report a
+// stuck sync" button). Stored as opaque JSON; only lightly validated, since
+// the whole point is to see whatever the client actually observed.
+// ---------------------------------------------------------------------------
+
+const MAX_DIAGNOSTIC_BYTES = 8_000;
+
+app.post("/diagnostics", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return c.json({ error: "invalid_body", message: "A JSON diagnostic report is required." }, 400);
+  }
+  const deviceId = typeof body.deviceId === "string" ? body.deviceId.slice(0, 128) : null;
+  const payload = JSON.stringify(body).slice(0, MAX_DIAGNOSTIC_BYTES);
+
+  await c.env.DB.prepare(
+    "INSERT INTO diagnostic_reports (id, user_id, device_id, payload, created_at) VALUES (?1,?2,?3,?4,?5)",
+  )
+    .bind(crypto.randomUUID(), userId, deviceId, payload, Date.now())
+    .run();
+
+  return c.json({ ok: true }, 201);
 });
 
 app.notFound((c) => c.json({ error: "not_found", message: "No such route." }, 404));

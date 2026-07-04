@@ -1,31 +1,49 @@
+// Storage layer for the extension. Hard-won design constraints (all observed
+// live on iOS Safari — see the 3.1.x postmortem in the 3.2.0 release PR):
+//
+//  1. Safari charges storage in UTF-16 code units (2 bytes per ASCII char);
+//     desktop browsers charge UTF-8. All budgets here are in PLATFORM BYTES.
+//  2. At the quota brim, Safari double-counts old+new value while rewriting a
+//     key, so EVERY set() fails — even a shrinking or empty write. Only
+//     remove() recovers. safeSet() encodes that escape.
+//  3. iOS kills extension contexts at any await. Every write must leave
+//     storage in a state some future run can proceed from.
+//  4. The background worker and popup are separate JS contexts. Locks here
+//     are per-context, so ONLY the background may mutate storage (the popup
+//     sends messages); reads are safe anywhere.
 import type { CapturedPage } from "@wtm/shared";
-import { DEFAULT_STATE, type ExtState } from "./config";
+import { DEFAULT_STATE, PLATFORM, type ExtState } from "./config";
+import { gunzipFromB64, gzipToB64 } from "./gzip";
 
 const STATE_KEY = "wtm:state";
 const QUEUE_KEY = "wtm:queue";
+const CEILING_KEY = "wtm:quotaCeiling";
+const CORRUPT_KEY = "wtm:queue:corrupt";
 
-// Safari Web Extensions cap storage.local far below Chrome and ignore the
-// `unlimitedStorage` permission on iOS, so a queue of full-text captures can
-// overflow it — especially while signed out, when flush() can't drain it. Keep
-// the queue under a soft byte budget, and if storage.local.set still reports the
-// quota exceeded, drop the oldest captures and retry so capture degrades
-// gracefully instead of throwing "Exceeded storage quota".
-const QUEUE_SOFT_BYTES = 4_000_000;
+// Queue budget in platform bytes. iOS field data puts the real per-extension
+// ceiling around ~750KB platform bytes; 400KB leaves headroom for state and
+// margin for error. Arithmetic to keep in mind before "optimizing": base64 is
+// ASCII, so under UTF-16 accounting a gz payload costs 8/3 x the compressed
+// binary size — 400KB platform bytes ~ 150KB of gzip ~ 0.5-1MB of raw page
+// text ~ 100+ typical pages. Desktop quotas are 10MB+; 4MB is comfortable.
+const QUEUE_SOFT_PLATFORM_BYTES = PLATFORM === "safari-ios" ? 400_000 : 4_000_000;
 
-// The platform's real quota can sit far below QUEUE_SOFT_BYTES (iOS). Once a
-// write fails we learn where the ceiling is: park the queue budget at 75% of
-// the smallest payload seen failing, so state writes (token, deviceId, …)
-// always have headroom instead of the queue filling storage to the brim.
-// Module-level only — a restarted worker re-learns it on the next quota hit.
-let quotaCeilingBytes: number | null = null;
+// Never learn a ceiling below this: isQuotaError is substring-broad, and one
+// odd failed write must not park capture at a starvation budget forever.
+const CEILING_FLOOR_BYTES = 65_536;
+// A learned ceiling older than this is ignored on load — recovery path for a
+// bogus learn; the platform's real limit doesn't move.
+const CEILING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function noteQuotaHit(failedBytes: number): void {
-  const ceiling = Math.floor(failedBytes * 0.75);
-  quotaCeilingBytes = quotaCeilingBytes === null ? ceiling : Math.min(quotaCeilingBytes, ceiling);
-}
+// One 200K-char longread costs ~130KB platform bytes even compressed — three
+// of them would evict everything else from an iOS queue. Cap what the
+// constrained device BUFFERS (the server-side record is separately capped).
+const IOS_PAGE_TEXT_CAP = 60_000;
 
-function byteSize(value: unknown): number {
-  return new TextEncoder().encode(JSON.stringify(value)).length;
+/** Size of a value as the current platform's storage accounting charges it. */
+export function storedSize(value: unknown): number {
+  const json = JSON.stringify(value);
+  return PLATFORM === "safari-ios" ? json.length * 2 : new TextEncoder().encode(json).length;
 }
 
 export function isQuotaError(e: unknown): boolean {
@@ -33,20 +51,330 @@ export function isQuotaError(e: unknown): boolean {
   return s.includes("quota") || s.includes("exceeded");
 }
 
-/** The real-quota estimate learned from a prior failed write, if any. */
-export function getQuotaCeiling(): number | null {
-  return quotaCeilingBytes;
+/** Prefix an error with which operation hit it, preserving the original text. */
+function tagError(op: string, e: unknown): Error {
+  return new Error(`${op}: ${(e as { message?: string } | null)?.message ?? e}`);
+}
+
+function dropOldest(q: CapturedPage[], fraction: number): CapturedPage[] {
+  return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
+}
+
+// ---------------------------------------------------------------------------
+// The single storage mutex. EVERY read-modify-write of state or queue goes
+// through this — and because only the background context calls the mutators
+// below, a per-context lock is globally sufficient. Public mutators take the
+// lock exactly once and only call the lock-free internals.
+// ---------------------------------------------------------------------------
+
+let storageLock: Promise<unknown> = Promise.resolve();
+export function withStorageLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = storageLock.then(fn, fn);
+  storageLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+// ---------------------------------------------------------------------------
+// safeSet — the brim escape (constraint 2). Counted for diagnostics.
+// ---------------------------------------------------------------------------
+
+let brimEscapes = 0;
+
+async function safeSet(key: string, value: unknown): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [key]: value });
+  } catch (e) {
+    if (!isQuotaError(e)) throw e;
+    // Free the old value unconditionally, then the new one only has to fit on
+    // its own. Crash window between remove and set loses only this key's old
+    // value — for the queue that's the unsynced retry buffer (server upserts
+    // are idempotent), for state ~1KB of re-derivable session data. Both are
+    // strictly better than the permanent wedge this escapes.
+    await chrome.storage.local.remove(key);
+    brimEscapes++;
+    await chrome.storage.local.set({ [key]: value });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Learned quota ceiling. Lives at its own tiny key — NEVER inside state, so
+// persisting it can't clobber concurrent state patches. Learned in memory the
+// moment a queue write fails; persisted only after a later SUCCESSFUL write
+// (at failure time storage demonstrably has no room). Heals upward 10% after
+// each fully-clean drain, and expires after 7 days.
+// ---------------------------------------------------------------------------
+
+type Ceiling = { bytes: number; learnedAt: number };
+let ceiling: Ceiling | null = null;
+let ceilingLoaded = false;
+let ceilingDirty = false;
+
+async function loadCeiling(): Promise<void> {
+  if (ceilingLoaded) return;
+  try {
+    const o = await chrome.storage.local.get(CEILING_KEY);
+    const c = o[CEILING_KEY] as Ceiling | undefined;
+    if (
+      c &&
+      typeof c.bytes === "number" &&
+      typeof c.learnedAt === "number" &&
+      Date.now() - c.learnedAt < CEILING_TTL_MS &&
+      ceiling === null // an in-memory learn from this session is fresher
+    ) {
+      ceiling = c;
+    }
+  } catch {
+    /* unreadable — proceed with in-memory value */
+  }
+  ceilingLoaded = true;
+}
+
+function noteQuotaHit(platformBytes: number): void {
+  const learned = Math.max(CEILING_FLOOR_BYTES, Math.floor(platformBytes * 0.75));
+  if (!ceiling || learned < ceiling.bytes) {
+    ceiling = { bytes: learned, learnedAt: Date.now() };
+    ceilingDirty = true;
+  }
+}
+
+async function persistCeilingIfDirty(): Promise<void> {
+  if (!ceilingDirty || !ceiling) return;
+  try {
+    await chrome.storage.local.set({ [CEILING_KEY]: ceiling });
+    ceilingDirty = false;
+  } catch {
+    /* best effort — stays dirty, retried after the next successful write */
+  }
+}
+
+export async function getCeiling(): Promise<Ceiling | null> {
+  await loadCeiling();
+  return ceiling;
+}
+
+/** Called by the background after a drain that saw zero quota errors. */
+export async function raiseCeilingAfterCleanDrain(): Promise<void> {
+  await loadCeiling();
+  if (!ceiling) return;
+  const raised = Math.floor(ceiling.bytes * 1.1);
+  if (raised >= QUEUE_SOFT_PLATFORM_BYTES) {
+    ceiling = null;
+    ceilingDirty = false;
+    try {
+      await chrome.storage.local.remove(CEILING_KEY);
+    } catch {
+      /* best effort */
+    }
+  } else {
+    ceiling = { bytes: raised, learnedAt: ceiling.learnedAt };
+    ceilingDirty = true;
+    await persistCeilingIfDirty();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+export async function getState(): Promise<ExtState> {
+  const o = await chrome.storage.local.get(STATE_KEY);
+  return { ...DEFAULT_STATE, ...((o[STATE_KEY] as Partial<ExtState>) ?? {}) };
 }
 
 /**
- * Actual browser-reported storage.local usage, if the platform exposes it
- * (getBytesInUse is optional in the WebExtension spec — Safari's support is
- * exactly the open question a "storage full but we can't see why" report
- * needs answered). Returns null rather than throwing when unavailable.
+ * The only way state is written (background context only — popup goes through
+ * the setState message). Auth/device state outranks buffered captures: on
+ * quota pressure, trim the queue to make room and retry; give up only once
+ * the queue is empty and the state alone still won't fit.
  */
+export function applyStatePatch(patch: Partial<ExtState>): Promise<ExtState> {
+  return withStorageLock(async () => {
+    await loadCeiling();
+    const next = { ...(await getState()), ...patch };
+    for (;;) {
+      try {
+        await safeSet(STATE_KEY, next);
+        await persistCeilingIfDirty();
+        return next;
+      } catch (e) {
+        if (!isQuotaError(e)) throw e;
+        // Don't learn a ceiling from a ~1KB state write — queue writes learn
+        // it from the payload that actually dominates storage.
+        const read = await readQueueInternal();
+        if (read.format === "corrupt") {
+          await quarantineCorrupt(read.raw);
+          continue; // removing the corrupt queue freed space; retry the state write
+        }
+        if (read.pages.length === 0) throw tagError("state write (queue already empty)", e);
+        await writeQueueInternal(dropOldest(read.pages, 0.25));
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Queue. Stored as {v:2, n, gz} — n lets the popup show a count without
+// gunzipping. Readers accept v2, v1 {v:1, gz}, and the pre-compression plain
+// array. Reads NEVER write (popup safety); corrupt payloads are quarantined
+// by the next background mutator instead of being silently overwritten.
+// ---------------------------------------------------------------------------
+
+type EnvelopeV2 = { v: 2; n: number; gz: string };
+type QueueFormat = "v2" | "v1" | "plain" | "absent" | "corrupt";
+
+function encodeQueue(pages: CapturedPage[]): EnvelopeV2 {
+  return { v: 2, n: pages.length, gz: gzipToB64(JSON.stringify(pages)) };
+}
+
+async function readQueueInternal(): Promise<{ pages: CapturedPage[]; format: QueueFormat; raw?: unknown }> {
+  const o = await chrome.storage.local.get(QUEUE_KEY);
+  const raw = o[QUEUE_KEY];
+  if (raw == null) return { pages: [], format: "absent" };
+  if (Array.isArray(raw)) return { pages: raw as CapturedPage[], format: "plain" };
+  const env = raw as { v?: number; gz?: string };
+  if (typeof env === "object" && (env.v === 1 || env.v === 2) && typeof env.gz === "string") {
+    try {
+      return { pages: JSON.parse(gunzipFromB64(env.gz)) as CapturedPage[], format: env.v === 2 ? "v2" : "v1" };
+    } catch {
+      return { pages: [], format: "corrupt", raw };
+    }
+  }
+  return { pages: [], format: "corrupt", raw };
+}
+
+/**
+ * Preserve (don't silently destroy) an unreadable queue payload, then clear
+ * the key so capture restarts cleanly. One-shot: the first corruption is the
+ * diagnostic evidence; later ones just get cleared. Size-guarded so the
+ * evidence can't itself wedge a brim device.
+ */
+async function quarantineCorrupt(raw: unknown): Promise<void> {
+  try {
+    const existing = await chrome.storage.local.get(CORRUPT_KEY);
+    await chrome.storage.local.remove(QUEUE_KEY); // free space FIRST (brim)
+    if (existing[CORRUPT_KEY] != null) return;
+    const budget = Math.min(QUEUE_SOFT_PLATFORM_BYTES, ceiling?.bytes ?? Number.POSITIVE_INFINITY);
+    const value =
+      storedSize(raw) <= budget * 0.25
+        ? { at: Date.now(), raw }
+        : { at: Date.now(), bytes: storedSize(raw), stub: true };
+    await chrome.storage.local.set({ [CORRUPT_KEY]: value });
+  } catch {
+    try {
+      await chrome.storage.local.remove(QUEUE_KEY);
+    } catch {
+      /* nothing more we can do */
+    }
+  }
+}
+
+/** Lock-free internal write: trim to budget, safeSet, learn ceiling on failure. */
+async function writeQueueInternal(pages: CapturedPage[]): Promise<void> {
+  await loadCeiling();
+  const budget = Math.min(QUEUE_SOFT_PLATFORM_BYTES, ceiling?.bytes ?? Number.POSITIVE_INFINITY);
+  let current = pages;
+  let payload = encodeQueue(current);
+  while (current.length > 1 && storedSize(payload) > budget) {
+    current = dropOldest(current, 0.1);
+    payload = encodeQueue(current);
+  }
+  for (;;) {
+    try {
+      await safeSet(QUEUE_KEY, payload);
+      await persistCeilingIfDirty();
+      return;
+    } catch (e) {
+      if (!isQuotaError(e)) throw e;
+      noteQuotaHit(storedSize(payload));
+      if (current.length === 0) throw tagError("queue write (even empty queue rejected)", e);
+      current = dropOldest(current, 0.25);
+      payload = encodeQueue(current);
+    }
+  }
+}
+
+/** Read-only; safe from any context. Corrupt/absent read as empty. */
+export async function getQueue(): Promise<CapturedPage[]> {
+  return (await readQueueInternal()).pages;
+}
+
+/** Count without gunzipping the payload (popup status line). */
+export async function getQueueCount(): Promise<number> {
+  const o = await chrome.storage.local.get(QUEUE_KEY);
+  const raw = o[QUEUE_KEY] as { v?: number; n?: number } | CapturedPage[] | undefined;
+  if (raw == null) return 0;
+  if (Array.isArray(raw)) return raw.length;
+  if (raw.v === 2 && typeof raw.n === "number") return raw.n;
+  return (await readQueueInternal()).pages.length;
+}
+
+/** Background only. Returns how many entries were added or refreshed. */
+export function enqueue(pages: CapturedPage[]): Promise<number> {
+  return withStorageLock(async () => {
+    const read = await readQueueInternal();
+    if (read.format === "corrupt") await quarantineCorrupt(read.raw);
+    const q = read.format === "corrupt" ? [] : read.pages;
+
+    const capped =
+      PLATFORM === "safari-ios"
+        ? pages.map((p) => (p.text.length > IOS_PAGE_TEXT_CAP ? { ...p, text: p.text.slice(0, IOS_PAGE_TEXT_CAP) } : p))
+        : pages;
+
+    // Dedupe by URL, replacing in place: a re-visit of a still-queued URL
+    // keeps the queue position but carries the fresher text/visitedAt (the
+    // old behavior DROPPED the newer capture).
+    const indexByUrl = new Map(q.map((p, i) => [p.url, i] as const));
+    const next = [...q];
+    let changed = 0;
+    for (const p of capped) {
+      const i = indexByUrl.get(p.url);
+      if (i === undefined) {
+        indexByUrl.set(p.url, next.length);
+        next.push(p);
+      } else {
+        next[i] = p;
+      }
+      changed++;
+    }
+    if (changed) await writeQueueInternal(next);
+    return changed;
+  });
+}
+
+/** Background only: drop pages the server has acked. Migrates legacy formats. */
+export function removeSyncedIds(ids: ReadonlySet<string>): Promise<void> {
+  return withStorageLock(async () => {
+    const read = await readQueueInternal();
+    if (read.format === "corrupt") {
+      await quarantineCorrupt(read.raw);
+      return;
+    }
+    const filtered = read.pages.filter((p) => !ids.has(p.id));
+    const needsMigration = read.format === "plain" || read.format === "v1";
+    if (filtered.length !== read.pages.length || needsMigration) {
+      await writeQueueInternal(filtered);
+    }
+  });
+}
+
+/** Background only (popup sends the clearQueue message). remove() beats a
+ * shrinking set() at the brim — see constraint 2. */
+export function clearQueue(): Promise<void> {
+  return withStorageLock(async () => {
+    await chrome.storage.local.remove(QUEUE_KEY);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
+/** Browser-reported usage, if the platform exposes getBytesInUse. */
 export async function getBytesInUse(): Promise<{ total: number | null; state: number | null; queue: number | null }> {
-  const fn = (chrome.storage.local as { getBytesInUse?: (k?: string | string[]) => Promise<number> })
-    .getBytesInUse;
+  const fn = (chrome.storage.local as { getBytesInUse?: (k?: string | string[]) => Promise<number> }).getBytesInUse;
   if (typeof fn !== "function") return { total: null, state: null, queue: null };
   const safe = async (k?: string | string[]) => {
     try {
@@ -59,165 +387,24 @@ export async function getBytesInUse(): Promise<{ total: number | null; state: nu
   return { total, state, queue };
 }
 
-// --- queue compression -------------------------------------------------------
-// Readable page text gzips ~3-5x, so storing the queue compressed multiplies
-// how many captures fit under the platform quota (the win that matters on
-// iOS). Values in storage.local must be JSON-safe, hence base64. Platforms
-// without CompressionStream fall back to the legacy plain-array format, which
-// getQueue still accepts.
-
-const hasCompression =
-  typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
-
-function bufToB64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(s);
-}
-
-function b64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(new ArrayBuffer(bin.length));
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-async function gzipText(text: string): Promise<string> {
-  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
-  return bufToB64(await new Response(stream).arrayBuffer());
-}
-
-async function gunzipText(b64: string): Promise<string> {
-  const stream = new Blob([b64ToBytes(b64)]).stream().pipeThrough(new DecompressionStream("gzip"));
-  return new Response(stream).text();
-}
-
-type QueueEnvelope = { v: 1; gz: string };
-
-async function encodeQueue(pages: CapturedPage[]): Promise<CapturedPage[] | QueueEnvelope> {
-  if (!hasCompression) return pages;
-  return { v: 1, gz: await gzipText(JSON.stringify(pages)) };
-}
-
-function dropOldest(q: CapturedPage[], fraction: number): CapturedPage[] {
-  return q.length <= 1 ? [] : q.slice(Math.max(1, Math.ceil(q.length * fraction)));
-}
-
-/** Prefix an error with which operation hit it, preserving the original text. */
-function tagError(op: string, e: unknown): Error {
-  return new Error(`${op}: ${(e as { message?: string } | null)?.message ?? e}`);
-}
-
-// Serializes read-modify-write access to the queue. Both enqueue() (a capture
-// arriving) and flush()'s post-push cleanup do getQueue() then setQueue() —
-// without this, one can read stale data while the other is mid-write, and the
-// loser's write clobbers the winner's: a captured page silently vanishes, or
-// (worse) a just-synced batch never actually leaves local storage and gets
-// re-pushed forever. Every queue read-modify-write must go through this.
-let queueLock: Promise<unknown> = Promise.resolve();
-export function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = queueLock.then(fn, fn);
-  queueLock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
-
-export async function getState(): Promise<ExtState> {
-  const o = await chrome.storage.local.get(STATE_KEY);
-  return { ...DEFAULT_STATE, ...((o[STATE_KEY] as Partial<ExtState>) ?? {}) };
-}
-
-export async function setState(patch: Partial<ExtState>): Promise<ExtState> {
-  const next = { ...(await getState()), ...patch };
-  // Auth/device state outranks buffered captures: if the write hits the
-  // platform quota, drop the oldest queued captures to make room and retry,
-  // giving up only once the queue is empty and the state alone still won't fit.
-  for (;;) {
-    try {
-      await chrome.storage.local.set({ [STATE_KEY]: next });
-      return next;
-    } catch (e) {
-      if (!isQuotaError(e)) throw e;
-      const q = await getQueue();
-      if (q.length === 0) throw tagError("state write (queue already empty)", e);
-      noteQuotaHit(byteSize(next) + byteSize(q));
-      await setQueue(dropOldest(q, 0.25));
-    }
-  }
-}
-
-export async function getQueue(): Promise<CapturedPage[]> {
-  const o = await chrome.storage.local.get(QUEUE_KEY);
-  const raw = o[QUEUE_KEY];
-  if (Array.isArray(raw)) return raw as CapturedPage[]; // legacy / no-compression format
-  if (raw && typeof raw === "object" && (raw as QueueEnvelope).v === 1) {
-    try {
-      return JSON.parse(await gunzipText((raw as QueueEnvelope).gz)) as CapturedPage[];
-    } catch {
-      return []; // corrupted envelope — drop the buffer rather than wedge capture
-    }
-  }
-  return [];
-}
-
-/**
- * User-triggered escape hatch: discard the local queue entirely. Uses
- * remove() rather than set({[QUEUE_KEY]: []}) — a write that shrinks data can
- * still be rejected under a size- or rate-based quota (confirmed live: a
- * device rejected writing an empty queue), whereas removing a key is a
- * strictly lighter operation with nothing new to persist. Falls back to a
- * plain-array set() if remove() itself is ever unavailable.
- */
-export async function clearQueue(): Promise<void> {
-  return withQueueLock(async () => {
-    if (typeof chrome.storage.local.remove === "function") {
-      await chrome.storage.local.remove(QUEUE_KEY);
-      return;
-    }
-    await chrome.storage.local.set({ [QUEUE_KEY]: [] });
-  });
-}
-
-export async function setQueue(q: CapturedPage[]): Promise<void> {
-  // Soft-trim the oldest captures until the stored (compressed) payload is
-  // under the byte budget (the smaller of the static soft budget and 75% of
-  // any observed real quota).
-  const budget = Math.min(QUEUE_SOFT_BYTES, quotaCeilingBytes ?? Number.POSITIVE_INFINITY);
-  let pages = q;
-  let payload = await encodeQueue(pages);
-  while (pages.length > 1 && byteSize(payload) > budget) {
-    pages = dropOldest(pages, 0.1);
-    payload = await encodeQueue(pages);
-  }
-  // Write. If the platform's real quota is still exceeded, record where the
-  // ceiling is, keep dropping the oldest captures, and retry; as a last resort
-  // store an empty queue so capture never throws.
-  for (;;) {
-    try {
-      await chrome.storage.local.set({ [QUEUE_KEY]: payload });
-      return;
-    } catch (e) {
-      if (!isQuotaError(e)) throw e;
-      if (pages.length === 0) throw tagError("queue write (even empty queue rejected)", e);
-      noteQuotaHit(byteSize(payload));
-      pages = dropOldest(pages, 0.25);
-      payload = await encodeQueue(pages);
-    }
-  }
-}
-
-export async function enqueue(pages: CapturedPage[]): Promise<number> {
-  return withQueueLock(async () => {
-    const q = await getQueue();
-    // De-dupe rapid re-captures of the same URL still sitting in the queue.
-    const urls = new Set(q.map((p) => p.url));
-    const fresh = pages.filter((p) => !urls.has(p.url));
-    if (fresh.length) await setQueue([...q, ...fresh]);
-    return fresh.length;
-  });
+export async function getStorageDiagnostics(): Promise<{
+  envelopeFormat: QueueFormat;
+  queueLength: number;
+  accountingMode: "utf16" | "utf8";
+  hasCompressionStream: boolean;
+  ceiling: Ceiling | null;
+  corruptKey: { present: boolean; bytes?: number };
+  brimEscapes: number;
+}> {
+  const read = await readQueueInternal();
+  const corrupt = await chrome.storage.local.get(CORRUPT_KEY);
+  return {
+    envelopeFormat: read.format,
+    queueLength: read.pages.length,
+    accountingMode: PLATFORM === "safari-ios" ? "utf16" : "utf8",
+    hasCompressionStream: typeof CompressionStream !== "undefined",
+    ceiling: await getCeiling(),
+    corruptKey: corrupt[CORRUPT_KEY] != null ? { present: true, bytes: storedSize(corrupt[CORRUPT_KEY]) } : { present: false },
+    brimEscapes,
+  };
 }

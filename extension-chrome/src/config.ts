@@ -20,6 +20,8 @@ export interface ExtState {
   lastError: string | null;
   /** When lastError was recorded; the popup stops showing errors after a TTL. */
   lastErrorAt: number | null;
+  /** Rate limit for the automatic capture-paused diagnostic report. */
+  lastAutoReportAt: number | null;
 }
 
 /** Key identifying which account a registered deviceId belongs to. */
@@ -37,4 +39,5 @@ export const DEFAULT_STATE: ExtState = {
   lastSync: null,
   lastError: null,
   lastErrorAt: null,
+  lastAutoReportAt: null,
 };

@@ -3,13 +3,12 @@ import {
   isValidRetentionDays,
   RETENTION_MAX_DAYS,
   RETENTION_MIN_DAYS,
-  type DiagnosticReport,
   type PageRecord,
   type SearchHit,
 } from "@wtm/shared";
 import { chooseSubline, SEARCH_DEBOUNCE_MS, snippetHtml, timeAgo } from "@wtm/shared/format";
-import { DEFAULT_BACKEND, deviceOwnerKey, PLATFORM } from "./config";
-import { clearQueue, getBytesInUse, getQueue, getQuotaCeiling, getState, setState } from "./storage";
+import { DEFAULT_BACKEND, type ExtState } from "./config";
+import { getQueueCount, getState } from "./storage";
 
 const app = document.getElementById("app") as HTMLDivElement;
 
@@ -32,6 +31,35 @@ function h<K extends keyof HTMLElementTagNameMap>(
 async function client(): Promise<WtmClient> {
   const st = await getState();
   return new WtmClient({ baseUrl: st.baseUrl, token: st.token });
+}
+
+// ---------------------------------------------------------------------------
+// The popup NEVER writes storage directly — the background worker is the
+// single writer (that's what makes its storage mutex an actual mutex). Every
+// mutation goes through a message; one retry covers Safari's occasional
+// dropped first delivery; a failure is surfaced, never silently swallowed by
+// falling back to a direct write (that would reintroduce the race this
+// design exists to kill).
+// ---------------------------------------------------------------------------
+
+async function sendBg<T = { ok: boolean; error?: string; state?: ExtState }>(msg: unknown): Promise<T> {
+  const attempt = () => chrome.runtime.sendMessage(msg) as Promise<T>;
+  try {
+    return await attempt();
+  } catch {
+    await new Promise((r) => setTimeout(r, 500));
+    return attempt();
+  }
+}
+
+async function mutate(patch: Partial<ExtState>, opts: { thenFlush?: boolean } = {}): Promise<ExtState> {
+  const resp = await sendBg<{ ok: boolean; error?: string; state?: ExtState }>({
+    type: "setState",
+    patch,
+    thenFlush: opts.thenFlush,
+  });
+  if (!resp?.ok || !resp.state) throw new Error(resp?.error ?? "Couldn't save — try again.");
+  return resp.state;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,13 +95,12 @@ async function renderAuth(errorMsg?: string): Promise<void> {
     try {
       const c = new WtmClient({ baseUrl });
       const res = register ? await c.register({ email, password }) : await c.login({ email, password });
-      // Re-login into the same account on the same backend keeps this device's
-      // node registration; anything else starts fresh (no duplicate nodes).
-      const prev = await getState();
-      const owner = deviceOwnerKey(baseUrl, res.user.id);
-      const deviceId = prev.deviceOwner === owner ? prev.deviceId : null;
-      await setState({ baseUrl, token: res.token, user: res.user, deviceId, deviceOwner: owner, lastError: null });
-      chrome.runtime.sendMessage({ type: "authChanged" });
+      // deviceId/deviceOwner reconciliation happens in the background's flush
+      // (it regenerates the node id when the account or backend changed).
+      await mutate(
+        { baseUrl, token: res.token, user: res.user, lastError: null, lastErrorAt: null },
+        { thenFlush: true },
+      );
       await renderApp();
     } catch (e) {
       err.textContent = e instanceof WtmApiError ? e.message : `Could not reach ${baseUrl}`;
@@ -105,9 +132,9 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function renderStatus(container: HTMLElement): Promise<void> {
   const st = await getState();
-  const queue = await getQueue();
+  const queued = await getQueueCount(); // envelope carries the count — no decompress
   const children: (Node | string)[] = [
-    h("span", {}, [h("b", {}, [String(queue.length)]), " queued"]),
+    h("span", {}, [h("b", {}, [String(queued)]), " queued"]),
     " · ",
     h("span", {}, [st.lastSync ? `synced ${timeAgo(st.lastSync)}` : "not synced yet"]),
   ];
@@ -130,13 +157,24 @@ async function renderApp(): Promise<void> {
   // header
   const captureToggle = h("input", { type: "checkbox" }) as HTMLInputElement;
   captureToggle.checked = st.captureEnabled;
-  captureToggle.addEventListener("change", () => void setState({ captureEnabled: captureToggle.checked }));
+  captureToggle.addEventListener("change", async () => {
+    const wanted = captureToggle.checked;
+    try {
+      await mutate({ captureEnabled: wanted });
+    } catch {
+      captureToggle.checked = !wanted; // optimistic UI, reverted on failure
+    }
+  });
   const logout = h("button", { class: "link" }, ["Log out"]);
   logout.addEventListener("click", async () => {
-    // Keep deviceId + deviceOwner: logging back into the same account should
-    // reuse this device's node instead of registering a duplicate.
-    await setState({ token: null, user: null });
-    await renderAuth();
+    try {
+      // Keep deviceId + deviceOwner: logging back into the same account should
+      // reuse this device's node instead of registering a duplicate.
+      await mutate({ token: null, user: null });
+      await renderAuth();
+    } catch {
+      logout.textContent = "Log out failed — retry";
+    }
   });
 
   app.append(
@@ -193,7 +231,7 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
     filterCb.disabled = true;
     try {
       const u = await (await client()).updateSettings({ filterSensitive: filterCb.checked });
-      await setState({ user: u });
+      await mutate({ user: u });
     } catch {
       filterCb.checked = !filterCb.checked;
     } finally {
@@ -220,7 +258,7 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
     daysMsg.textContent = "";
     try {
       const u = await (await client()).updateSettings({ retentionDays: d });
-      await setState({ user: u });
+      await mutate({ user: u });
       daysMsg.textContent = "Saved";
     } catch (e) {
       daysMsg.textContent = e instanceof WtmApiError ? e.message : "Failed";
@@ -277,60 +315,41 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
     );
   }
 
-  // Sync troubleshooting: send a diagnostic snapshot (queue size, learned
-  // quota ceiling, real browser-reported usage, last error) so a stuck sync
-  // can be debugged from what actually happened on-device, then optionally
-  // clear the local queue as a last-resort escape hatch. Reports first,
-  // always — so a report is never lost to the clear that follows it.
+  // Sync troubleshooting. Both actions run IN THE BACKGROUND worker (the
+  // single storage writer): "Report" builds + sends a diagnostic snapshot
+  // from live state; "Clear" auto-reports the stuck state first (evidence
+  // before destruction), then clears the local queue.
   const reportMsg = h("span", { class: "hint" }, []);
   const reportBtn = h("button", { class: "secondary tiny" }, ["Report sync issue"]) as HTMLButtonElement;
   const clearBtn = h("button", { class: "secondary tiny" }, ["Clear stuck queue"]) as HTMLButtonElement;
-
-  async function buildReport(): Promise<DiagnosticReport> {
-    const queue = await getQueue();
-    const bytes = await getBytesInUse();
-    return {
-      platform: PLATFORM,
-      extensionVersion: chrome.runtime.getManifest().version,
-      reportedAt: Date.now(),
-      deviceId: st.deviceId,
-      queueLength: queue.length,
-      queueRawBytes: new TextEncoder().encode(JSON.stringify(queue)).length,
-      queueStoredBytes: bytes.queue ?? -1,
-      quotaCeilingBytes: getQuotaCeiling(),
-      lastSync: st.lastSync,
-      lastError: st.lastError,
-      lastErrorAt: st.lastErrorAt,
-    };
-  }
 
   reportBtn.addEventListener("click", async () => {
     reportBtn.disabled = true;
     reportMsg.textContent = "Sending…";
     try {
-      await (await client()).reportDiagnostics(await buildReport());
+      const resp = await sendBg({ type: "reportDiagnostics" });
+      if (!resp?.ok) throw new Error(resp?.error ?? "failed");
       reportMsg.textContent = "Sent — thanks, we'll take a look.";
-    } catch (e) {
-      reportMsg.textContent = e instanceof WtmApiError ? e.message : "Couldn't send (offline?)";
+    } catch {
+      reportMsg.textContent = "Couldn't send (offline?)";
     } finally {
       reportBtn.disabled = false;
     }
   });
 
   clearBtn.addEventListener("click", async () => {
-    const queue = await getQueue();
-    if (queue.length && !confirm(`Discard ${queue.length} unsynced page(s) from this device? This can't be undone.`)) {
+    const queued = await getQueueCount();
+    if (queued && !confirm(`Discard ${queued} unsynced page(s) from this device? This can't be undone.`)) {
       return;
     }
     clearBtn.disabled = true;
     reportMsg.textContent = "";
     try {
-      // Best-effort: capture what was stuck before wiping it.
-      await (await client()).reportDiagnostics(await buildReport()).catch(() => null);
-      await clearQueue();
+      const resp = await sendBg({ type: "clearQueue" });
+      if (!resp?.ok) throw new Error(resp?.error ?? "failed");
       reportMsg.textContent = "Queue cleared.";
-    } catch (e) {
-      reportMsg.textContent = e instanceof WtmApiError ? e.message : "Couldn't clear the queue.";
+    } catch {
+      reportMsg.textContent = "Couldn't clear the queue.";
     } finally {
       clearBtn.disabled = false;
     }

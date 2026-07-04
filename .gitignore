@@ -49,3 +49,4 @@ extension-safari/**/xcuserdata/
 extension-safari/**/*.xcworkspace/xcuserdata/
 extension-safari/**/DerivedData/
 extension-safari/build/
+extension-chrome/test/.build/

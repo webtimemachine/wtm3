@@ -700,7 +700,18 @@ app.post("/diagnostics", async (c) => {
     return c.json({ error: "invalid_body", message: "A JSON diagnostic report is required." }, 400);
   }
   const deviceId = typeof body.deviceId === "string" ? body.deviceId.slice(0, 128) : null;
-  const payload = JSON.stringify(body).slice(0, MAX_DIAGNOSTIC_BYTES);
+  // Over-cap reports are stored as a VALID JSON wrapper with the head inside
+  // a string value — a raw slice() would cut mid-token and store unparseable
+  // JSON, defeating the entire "opaque but readable" purpose.
+  const serialized = JSON.stringify(body);
+  const payload =
+    serialized.length <= MAX_DIAGNOSTIC_BYTES
+      ? serialized
+      : JSON.stringify({
+          truncated: true,
+          originalChars: serialized.length,
+          head: serialized.slice(0, MAX_DIAGNOSTIC_BYTES - 200),
+        });
 
   await c.env.DB.prepare(
     "INSERT INTO diagnostic_reports (id, user_id, device_id, payload, created_at) VALUES (?1,?2,?3,?4,?5)",

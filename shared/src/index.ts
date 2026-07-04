@@ -95,6 +95,23 @@ export interface DiagnosticReport {
   lastErrorAt: number | null;
   /** Optional free-text note from the user describing what they saw. */
   note?: string;
+
+  // --- v2 fields (3.2.0+; all optional so old clients keep validating) ---
+  /** What fired this report: a user click, the auto-report on pause, or a queue clear. */
+  trigger?: "user" | "auto" | "clear";
+  /** Whether the context has CompressionStream (the original iOS mystery). */
+  hasCompressionStream?: boolean;
+  /** Stored queue format actually found: "v2" | "v1" | "plain" | "absent" | "corrupt". */
+  envelopeFormat?: string;
+  /** How this platform's storage is charged: "utf16" (Safari) or "utf8". */
+  accountingMode?: string;
+  /** When the learned quota ceiling was learned, if one is active. */
+  ceilingLearnedAt?: number | null;
+  corruptKeyPresent?: boolean;
+  corruptKeyBytes?: number;
+  /** How many times the remove-then-set brim escape fired this session. */
+  brimEscapes?: number;
+  bytesInUseTotal?: number | null;
 }
 
 // ---------------------------------------------------------------------------

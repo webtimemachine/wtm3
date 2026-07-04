@@ -1,6 +1,6 @@
 {
   "name": "@wtm/extension-chrome",
-  "version": "3.1.6",
+  "version": "3.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit",
     "cws:auth-url": "node scripts/cws-auth.mjs url",
     "cws:exchange": "node scripts/cws-auth.mjs exchange",
-    "cws:publish": "pnpm run package && node scripts/cws-publish.mjs deploy"
+    "cws:publish": "pnpm run package && node scripts/cws-publish.mjs deploy",
+    "test": "node test/build.mjs && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "@wtm/shared": "workspace:*"
+    "@wtm/shared": "workspace:*",
+    "fflate": "^0.8.3"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",

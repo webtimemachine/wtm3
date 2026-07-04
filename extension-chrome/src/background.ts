@@ -1,14 +1,31 @@
-// Background service worker: owns the capture queue and syncs it to the backend.
+// Background worker: the ONLY context that mutates extension storage. The
+// popup sends messages for every mutation (setState / clearQueue), which is
+// what makes storage.ts's per-context mutex a real mutex. Owns the capture
+// queue and syncs it to the backend.
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
-import type { CapturedPage } from "@wtm/shared";
-import { deviceOwnerKey, PLATFORM } from "./config";
-import { enqueue, getQueue, getState, isQuotaError, setQueue, setState, withQueueLock } from "./storage";
+import type { CapturedPage, DiagnosticReport } from "@wtm/shared";
+import { deviceOwnerKey, PLATFORM, type ExtState } from "./config";
+import {
+  applyStatePatch,
+  clearQueue,
+  enqueue,
+  getBytesInUse,
+  getCeiling,
+  getQueue,
+  getState,
+  getStorageDiagnostics,
+  isQuotaError,
+  raiseCeilingAfterCleanDrain,
+  removeSyncedIds,
+} from "./storage";
 
 const FLUSH_ALARM = "wtm:flush";
 const BATCH = 50;
 // Cap the JSON payload of one push. 50 text-heavy mobile captures can exceed
 // several MB, which flaky mobile networks reject; smaller pushes land.
 const BATCH_SOFT_BYTES = 1_000_000;
+// At most one automatic capture-paused diagnostic per day.
+const AUTO_REPORT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function takeBatch(queue: CapturedPage[]): CapturedPage[] {
   const batch: CapturedPage[] = [];
@@ -23,13 +40,8 @@ function takeBatch(queue: CapturedPage[]): CapturedPage[] {
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
-// Survives a failed setState (full storage) so an aborted flush can't register
-// a duplicate node on the next attempt. Owner-tagged so a different account
-// logging in never inherits another account's node id.
-let cachedNode: { id: string; owner: string } | null = null;
 
-chrome.runtime.onInstalled.addListener(async () => {
-  await getState(); // materialize defaults
+chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
 });
 chrome.runtime.onStartup.addListener(() => {
@@ -47,12 +59,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const st = await getState();
         if (!st.captureEnabled) return sendResponse({ ok: true, skipped: true });
         const page: CapturedPage = { id: crypto.randomUUID(), ...msg.page };
-        const added = await enqueue([page]);
-        if (added) scheduleFlush();
-        return sendResponse({ ok: true, added });
+        const changed = await enqueue([page]);
+        if (changed) scheduleFlush();
+        return sendResponse({ ok: true, added: changed });
       }
-      if (msg?.type === "flushNow" || msg?.type === "authChanged") {
+      if (msg?.type === "flushNow") {
         await flush();
+        return sendResponse({ ok: true });
+      }
+      if (msg?.type === "setState" && msg.patch && typeof msg.patch === "object") {
+        const state = await applyStatePatch(msg.patch as Partial<ExtState>);
+        if (msg.thenFlush) void flush();
+        return sendResponse({ ok: true, state });
+      }
+      if (msg?.type === "clearQueue") {
+        // Capture the evidence before destroying it: a diagnostic report of
+        // the stuck state goes out (best effort) ahead of the clear.
+        await sendDiagnostics("clear").catch(() => {});
+        await clearQueue();
+        return sendResponse({ ok: true, state: await getState() });
+      }
+      if (msg?.type === "reportDiagnostics") {
+        await sendDiagnostics("user");
         return sendResponse({ ok: true });
       }
       sendResponse({ ok: false, error: "unknown_message" });
@@ -76,78 +104,73 @@ async function flush(): Promise<void> {
   flushing = true;
   try {
     const st = await getState();
-    if (!st.token || !st.baseUrl) return;
+    if (!st.token || !st.baseUrl || !st.user) return;
     if (!(await getQueue()).length) return;
 
     const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
 
-    const owner = deviceOwnerKey(st.baseUrl, st.user?.id ?? "");
-    let deviceId = st.deviceId ?? (cachedNode?.owner === owner ? cachedNode.id : null);
+    // The node id is generated CLIENT-side, per (install, account) — the
+    // backend upserts a supplied id it already owns, so re-registering the
+    // same id is idempotent and duplicate nodes can't accumulate even if the
+    // state write below never lands. A different account (or backend) gets a
+    // fresh id, since a supplied id owned by another user would 409.
+    const owner = deviceOwnerKey(st.baseUrl, st.user.id);
+    let deviceId = st.deviceOwner === owner && st.deviceId ? st.deviceId : null;
     if (!deviceId) {
-      const node = await client.registerNode({ name: deviceName(), platform: PLATFORM });
-      deviceId = node.id;
-    }
-    cachedNode = { id: deviceId, owner };
-    try {
-      await setState({ deviceId, deviceOwner: owner });
-    } catch {
-      // Storage full even after trimming the queue — the in-memory id keeps
-      // this session syncing, and we persist again after the drain frees space.
+      deviceId = crypto.randomUUID();
+      await client.registerNode({ id: deviceId, name: deviceName(), platform: PLATFORM });
+      await applyStatePatch({ deviceId, deviceOwner: owner });
     }
 
-    // Drain in batches. Re-read storage after each push and remove only the
-    // acked ids, so pages enqueued during an in-flight upload aren't clobbered.
-    // lastSync advances after every landed batch — "synced" means data reached
-    // the server, not that the queue happened to be empty at the same moment.
+    // Drain in batches. syncedIds spans the whole run: pages the server has
+    // acked are filtered out of every later read, so a removal that fails to
+    // stick (storage pressure, context kill) can never head-of-line block the
+    // rest of the backlog — the next run re-pushes at most one already-acked
+    // batch (idempotent server upsert) and retries the removal.
+    const syncedIds = new Set<string>();
+    let removalError: unknown = null;
     while (true) {
-      const current = await getQueue();
+      const current = (await getQueue()).filter((p) => !syncedIds.has(p.id));
       if (!current.length) break;
       const batch = takeBatch(current);
-      const acked = new Set(batch.map((p) => p.id));
       await client.push({ deviceId, pages: batch });
-      await setState({ deviceId, deviceOwner: owner, lastSync: Date.now(), lastError: null, lastErrorAt: null });
-      // Removal + verification as one locked step, so a capture arriving mid-
-      // flush (enqueue() also takes this lock) can't interleave its own
-      // read-modify-write and clobber this one.
-      const stuck = await withQueueLock(async () => {
-        const after = await getQueue();
-        await setQueue(after.filter((p) => !acked.has(p.id)));
-        // A batch that lands on the server but never leaves local storage
-        // would otherwise get silently re-pushed every trigger forever
-        // (harmless to the server — it's an idempotent upsert — but the real
-        // backlog behind it never gets a turn, and the displayed queue count
-        // never drops). Verify it actually stuck.
-        const verify = await getQueue();
-        return verify.some((p) => acked.has(p.id));
-      });
-      if (stuck) {
-        // Stop this run rather than hammering the network with identical
-        // pushes, and surface something diagnosable instead of a silent loop.
-        throw new Error(
-          `sync: ${batch.length} page(s) landed on the server but local storage didn't drop them — will retry`,
-        );
+      for (const p of batch) syncedIds.add(p.id);
+      // lastSync advances per landed batch — "synced" means data reached the
+      // server, not that the queue happened to be empty.
+      await applyStatePatch({ lastSync: Date.now(), lastError: null, lastErrorAt: null });
+      // A removal that can't stick (storage wedged) must not abort the drain:
+      // the syncedIds filter makes continuing safe, so push the WHOLE backlog
+      // first and surface the storage problem afterwards.
+      try {
+        await removeSyncedIds(syncedIds);
+        removalError = null;
+      } catch (e) {
+        if (!isQuotaError(e)) throw e;
+        removalError = e;
       }
     }
+    if (removalError) throw removalError;
+
+    // A drain that completed without throwing lets a learned quota ceiling
+    // heal upward (10% per clean run, gone once it reaches the default).
+    await raiseCeilingAfterCleanDrain();
   } catch (e) {
-    // Quota hits are recovered by design (the queue trims itself), so report
-    // them as what they are — a notice, not a scary raw platform error.
+    const paused = isQuotaError(e) && /even empty/i.test((e as Error).message ?? "");
     const msg =
       e instanceof WtmApiError
         ? `${e.status} ${e.message}`
-        : isQuotaError(e)
-          ? // "even empty queue rejected" means the trim-and-retry already gave
-            // up — the device's whole storage allotment for this extension is
-            // full, not just the queue. Nothing here will self-heal; say so.
-            /even empty/i.test((e as Error).message ?? "")
-            ? `Device storage is full for this extension — capture is paused. Free up storage on your device (Settings → General → iPhone Storage) or remove and reinstall the extension, then try again.`
-            : `Device storage was full — oldest unsynced captures were trimmed. Sync continues. [${(e as Error).message?.slice(0, 100) ?? e}]`
-          : String(e);
+        : paused
+          ? "Device storage is full for this extension — capture is paused. Free up storage or use Settings → Clear stuck queue."
+          : isQuotaError(e)
+            ? `Device storage was full — oldest unsynced captures were trimmed. Sync continues. [${(e as Error).message?.slice(0, 100) ?? e}]`
+            : String(e);
     try {
-      await setState({ lastError: msg, lastErrorAt: Date.now() });
+      await applyStatePatch({ lastError: msg, lastErrorAt: Date.now() });
+      if (paused) await maybeAutoReport();
       if (e instanceof WtmApiError && e.status === 401) {
-        // Token expired/invalid — drop it so the popup prompts a re-login, but
+        // Token expired/invalid — drop it so the popup prompts a re-login;
         // keep deviceId/deviceOwner so the same account reuses this node.
-        await setState({ token: null });
+        await applyStatePatch({ token: null });
       }
     } catch {
       // Reporting the error must never itself throw (e.g. storage still full).
@@ -155,6 +178,55 @@ async function flush(): Promise<void> {
   } finally {
     flushing = false;
   }
+}
+
+/** One automatic diagnostic when capture enters the paused state, ≤1/day. */
+async function maybeAutoReport(): Promise<void> {
+  const st = await getState();
+  if (st.lastAutoReportAt && Date.now() - st.lastAutoReportAt < AUTO_REPORT_MIN_INTERVAL_MS) return;
+  // Persist the rate-limit stamp BEFORE sending: a duplicate report is
+  // cheaper than a send-loop if the stamp write keeps failing afterward.
+  await applyStatePatch({ lastAutoReportAt: Date.now() });
+  await sendDiagnostics("auto").catch(() => {});
+}
+
+/** Build and POST a diagnostic snapshot. Throws only for the "user" trigger. */
+async function sendDiagnostics(trigger: "user" | "auto" | "clear"): Promise<void> {
+  const st = await getState();
+  if (!st.token || !st.baseUrl) throw new Error("Not signed in.");
+  const report = await buildDiagnosticReport(trigger);
+  const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
+  await client.reportDiagnostics(report);
+}
+
+async function buildDiagnosticReport(trigger: "user" | "auto" | "clear"): Promise<DiagnosticReport> {
+  const st = await getState();
+  const queue = await getQueue();
+  const bytes = await getBytesInUse();
+  const diags = await getStorageDiagnostics();
+  const ceiling = await getCeiling();
+  return {
+    platform: PLATFORM,
+    extensionVersion: chrome.runtime.getManifest().version,
+    reportedAt: Date.now(),
+    deviceId: st.deviceId,
+    queueLength: queue.length,
+    queueRawBytes: new TextEncoder().encode(JSON.stringify(queue)).length,
+    queueStoredBytes: bytes.queue ?? -1,
+    quotaCeilingBytes: ceiling?.bytes ?? null,
+    lastSync: st.lastSync,
+    lastError: st.lastError,
+    lastErrorAt: st.lastErrorAt,
+    trigger,
+    hasCompressionStream: diags.hasCompressionStream,
+    envelopeFormat: diags.envelopeFormat,
+    accountingMode: diags.accountingMode,
+    ceilingLearnedAt: ceiling?.learnedAt ?? null,
+    corruptKeyPresent: diags.corruptKey.present,
+    corruptKeyBytes: diags.corruptKey.bytes,
+    brimEscapes: diags.brimEscapes,
+    bytesInUseTotal: bytes.total,
+  };
 }
 
 function deviceName(): string {

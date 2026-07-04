@@ -6,6 +6,7 @@ import {
   Routes,
   type AuthResponse,
   type ApiError,
+  type DiagnosticReport,
   type LoginRequest,
   type NodeInfo,
   type PageRecord,
@@ -139,5 +140,10 @@ export class WtmClient {
   }
   async deletePage(id: string): Promise<void> {
     await this.req("DELETE", Routes.page(id));
+  }
+
+  // --- diagnostics ---
+  async reportDiagnostics(report: DiagnosticReport): Promise<void> {
+    await this.req("POST", Routes.diagnostics, report);
   }
 }

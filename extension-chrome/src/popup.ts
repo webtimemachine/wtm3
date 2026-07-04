@@ -1,8 +1,15 @@
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
-import { isValidRetentionDays, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type PageRecord, type SearchHit } from "@wtm/shared";
+import {
+  isValidRetentionDays,
+  RETENTION_MAX_DAYS,
+  RETENTION_MIN_DAYS,
+  type DiagnosticReport,
+  type PageRecord,
+  type SearchHit,
+} from "@wtm/shared";
 import { chooseSubline, SEARCH_DEBOUNCE_MS, snippetHtml, timeAgo } from "@wtm/shared/format";
-import { DEFAULT_BACKEND, deviceOwnerKey } from "./config";
-import { getQueue, getState, setState } from "./storage";
+import { DEFAULT_BACKEND, deviceOwnerKey, PLATFORM } from "./config";
+import { clearQueue, getBytesInUse, getQueue, getQuotaCeiling, getState, setState } from "./storage";
 
 const app = document.getElementById("app") as HTMLDivElement;
 
@@ -269,6 +276,73 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
       ]),
     );
   }
+
+  // Sync troubleshooting: send a diagnostic snapshot (queue size, learned
+  // quota ceiling, real browser-reported usage, last error) so a stuck sync
+  // can be debugged from what actually happened on-device, then optionally
+  // clear the local queue as a last-resort escape hatch. Reports first,
+  // always — so a report is never lost to the clear that follows it.
+  const reportMsg = h("span", { class: "hint" }, []);
+  const reportBtn = h("button", { class: "secondary tiny" }, ["Report sync issue"]) as HTMLButtonElement;
+  const clearBtn = h("button", { class: "secondary tiny" }, ["Clear stuck queue"]) as HTMLButtonElement;
+
+  async function buildReport(): Promise<DiagnosticReport> {
+    const queue = await getQueue();
+    const bytes = await getBytesInUse();
+    return {
+      platform: PLATFORM,
+      extensionVersion: chrome.runtime.getManifest().version,
+      reportedAt: Date.now(),
+      deviceId: st.deviceId,
+      queueLength: queue.length,
+      queueRawBytes: new TextEncoder().encode(JSON.stringify(queue)).length,
+      queueStoredBytes: bytes.queue ?? -1,
+      quotaCeilingBytes: getQuotaCeiling(),
+      lastSync: st.lastSync,
+      lastError: st.lastError,
+      lastErrorAt: st.lastErrorAt,
+    };
+  }
+
+  reportBtn.addEventListener("click", async () => {
+    reportBtn.disabled = true;
+    reportMsg.textContent = "Sending…";
+    try {
+      await (await client()).reportDiagnostics(await buildReport());
+      reportMsg.textContent = "Sent — thanks, we'll take a look.";
+    } catch (e) {
+      reportMsg.textContent = e instanceof WtmApiError ? e.message : "Couldn't send (offline?)";
+    } finally {
+      reportBtn.disabled = false;
+    }
+  });
+
+  clearBtn.addEventListener("click", async () => {
+    const queue = await getQueue();
+    if (queue.length && !confirm(`Discard ${queue.length} unsynced page(s) from this device? This can't be undone.`)) {
+      return;
+    }
+    clearBtn.disabled = true;
+    reportMsg.textContent = "";
+    try {
+      // Best-effort: capture what was stuck before wiping it.
+      await (await client()).reportDiagnostics(await buildReport()).catch(() => null);
+      await clearQueue();
+      reportMsg.textContent = "Queue cleared.";
+    } catch (e) {
+      reportMsg.textContent = e instanceof WtmApiError ? e.message : "Couldn't clear the queue.";
+    } finally {
+      clearBtn.disabled = false;
+    }
+  });
+
+  children.push(
+    h("div", { class: "field" }, [
+      h("label", {}, ["Sync stuck?"]),
+      h("div", { class: "row" }, [reportBtn, clearBtn]),
+      reportMsg,
+    ]),
+  );
 
   return h("details", { class: "section settings" }, children);
 }

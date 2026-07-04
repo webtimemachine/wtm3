@@ -20,6 +20,7 @@
     recent: "/pages",
     page: (id) => `/pages/${id}`,
     pageText: (id) => `/pages/${id}/text`,
+    diagnostics: "/diagnostics",
     health: "/health"
   };
 
@@ -124,6 +125,10 @@
     async deletePage(id) {
       await this.req("DELETE", Routes.page(id));
     }
+    // --- diagnostics ---
+    async reportDiagnostics(report) {
+      await this.req("POST", Routes.diagnostics, report);
+    }
   };
 
   // ../shared/src/format.ts
@@ -151,6 +156,7 @@
   }
 
   // ../extension-chrome/src/config.ts
+  var PLATFORM = true ? "safari-ios" : "chrome";
   function deviceOwnerKey(baseUrl, userId) {
     return `${baseUrl}|${userId}`;
   }
@@ -181,6 +187,22 @@
   function isQuotaError(e) {
     const s = `${e?.message ?? e}`.toLowerCase();
     return s.includes("quota") || s.includes("exceeded");
+  }
+  function getQuotaCeiling() {
+    return quotaCeilingBytes;
+  }
+  async function getBytesInUse() {
+    const fn = chrome.storage.local.getBytesInUse;
+    if (typeof fn !== "function") return { total: null, state: null, queue: null };
+    const safe = async (k) => {
+      try {
+        return await fn.call(chrome.storage.local, k);
+      } catch {
+        return null;
+      }
+    };
+    const [total, state, queue] = await Promise.all([safe(), safe(STATE_KEY), safe(QUEUE_KEY)]);
+    return { total, state, queue };
   }
   var hasCompression = typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
   function bufToB64(buf) {
@@ -216,6 +238,14 @@
     return new Error(`${op}: ${e?.message ?? e}`);
   }
   var queueLock = Promise.resolve();
+  function withQueueLock(fn) {
+    const run = queueLock.then(fn, fn);
+    queueLock = run.then(
+      () => void 0,
+      () => void 0
+    );
+    return run;
+  }
   async function getState() {
     const o = await chrome.storage.local.get(STATE_KEY);
     return { ...DEFAULT_STATE, ...o[STATE_KEY] ?? {} };
@@ -247,6 +277,15 @@
       }
     }
     return [];
+  }
+  async function clearQueue() {
+    return withQueueLock(async () => {
+      if (typeof chrome.storage.local.remove === "function") {
+        await chrome.storage.local.remove(QUEUE_KEY);
+        return;
+      }
+      await chrome.storage.local.set({ [QUEUE_KEY]: [] });
+    });
   }
   async function setQueue(q) {
     const budget = Math.min(QUEUE_SOFT_BYTES, quotaCeilingBytes ?? Number.POSITIVE_INFINITY);
@@ -474,6 +513,62 @@
         ])
       );
     }
+    const reportMsg = h("span", { class: "hint" }, []);
+    const reportBtn = h("button", { class: "secondary tiny" }, ["Report sync issue"]);
+    const clearBtn = h("button", { class: "secondary tiny" }, ["Clear stuck queue"]);
+    async function buildReport() {
+      const queue = await getQueue();
+      const bytes = await getBytesInUse();
+      return {
+        platform: PLATFORM,
+        extensionVersion: chrome.runtime.getManifest().version,
+        reportedAt: Date.now(),
+        deviceId: st.deviceId,
+        queueLength: queue.length,
+        queueRawBytes: new TextEncoder().encode(JSON.stringify(queue)).length,
+        queueStoredBytes: bytes.queue ?? -1,
+        quotaCeilingBytes: getQuotaCeiling(),
+        lastSync: st.lastSync,
+        lastError: st.lastError,
+        lastErrorAt: st.lastErrorAt
+      };
+    }
+    reportBtn.addEventListener("click", async () => {
+      reportBtn.disabled = true;
+      reportMsg.textContent = "Sending\u2026";
+      try {
+        await (await client()).reportDiagnostics(await buildReport());
+        reportMsg.textContent = "Sent \u2014 thanks, we'll take a look.";
+      } catch (e) {
+        reportMsg.textContent = e instanceof WtmApiError ? e.message : "Couldn't send (offline?)";
+      } finally {
+        reportBtn.disabled = false;
+      }
+    });
+    clearBtn.addEventListener("click", async () => {
+      const queue = await getQueue();
+      if (queue.length && !confirm(`Discard ${queue.length} unsynced page(s) from this device? This can't be undone.`)) {
+        return;
+      }
+      clearBtn.disabled = true;
+      reportMsg.textContent = "";
+      try {
+        await (await client()).reportDiagnostics(await buildReport()).catch(() => null);
+        await clearQueue();
+        reportMsg.textContent = "Queue cleared.";
+      } catch (e) {
+        reportMsg.textContent = e instanceof WtmApiError ? e.message : "Couldn't clear the queue.";
+      } finally {
+        clearBtn.disabled = false;
+      }
+    });
+    children.push(
+      h("div", { class: "field" }, [
+        h("label", {}, ["Sync stuck?"]),
+        h("div", { class: "row" }, [reportBtn, clearBtn]),
+        reportMsg
+      ])
+    );
     return h("details", { class: "section settings" }, children);
   }
   function renderHit(p, results) {

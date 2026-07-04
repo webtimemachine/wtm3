@@ -135,7 +135,12 @@ async function flush(): Promise<void> {
       e instanceof WtmApiError
         ? `${e.status} ${e.message}`
         : isQuotaError(e)
-          ? `Device storage was full — oldest unsynced captures were trimmed. Sync continues. [${(e as Error).message?.slice(0, 100) ?? e}]`
+          ? // "even empty queue rejected" means the trim-and-retry already gave
+            // up — the device's whole storage allotment for this extension is
+            // full, not just the queue. Nothing here will self-heal; say so.
+            /even empty/i.test((e as Error).message ?? "")
+            ? `Device storage is full for this extension — capture is paused. Free up storage on your device (Settings → General → iPhone Storage) or remove and reinstall the extension, then try again.`
+            : `Device storage was full — oldest unsynced captures were trimmed. Sync continues. [${(e as Error).message?.slice(0, 100) ?? e}]`
           : String(e);
     try {
       await setState({ lastError: msg, lastErrorAt: Date.now() });

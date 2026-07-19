@@ -54,16 +54,27 @@ export async function summarizeText(
           content:
             'You analyze a web page and reply with ONLY compact JSON, no markdown, no extra text: ' +
             '{"summary": "<one concise sentence, max 25 words>", "adult": <true if the page is ' +
-            'sexually explicit, pornographic, or adult content, otherwise false>}.',
+            // "/no_think" is Qwen3's soft switch to skip thinking mode; other models ignore it.
+            'sexually explicit, pornographic, or adult content, otherwise false>}. /no_think',
         },
         { role: "user", content: `Title: ${title}\nURL: ${url}\n\nContent:\n${body}` },
       ],
-      max_tokens: 120,
-    })) as { response?: unknown };
+      max_tokens: 256,
+    })) as {
+      response?: unknown;
+      choices?: {
+        message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown };
+      }[];
+    };
 
-    // Workers AI may hand back `response` as a string OR as an already-parsed object.
-    const r = res?.response;
-    const text = typeof r === "string" ? r.trim() : "";
+    // Output shape varies by model: llama-family returns `response` (string or parsed
+    // object); OpenAI-compatible models (qwen3, gpt-oss) return chat.completion
+    // `choices[0].message.content` — and if thinking sneaks in, the JSON can land in
+    // `reasoning`/`reasoning_content` instead of `content`.
+    const msg = res?.choices?.[0]?.message;
+    const r = res?.response ?? msg?.content ?? msg?.reasoning_content ?? msg?.reasoning;
+    const text =
+      typeof r === "string" ? r.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : "";
     const j =
       r && typeof r === "object" && !Array.isArray(r)
         ? (r as { summary?: unknown; adult?: unknown })

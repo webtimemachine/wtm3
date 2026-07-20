@@ -27,6 +27,7 @@ import {
   type PageRow,
 } from "./db";
 import { toMatchQuery } from "./search";
+import { handleMcpPost } from "./mcp";
 import { isKnownAdultDomain, summarizePages } from "./summary";
 
 const DAY_MS = 86_400_000;
@@ -43,7 +44,7 @@ app.use(
   "*",
   cors({
     origin: "*",
-    allowHeaders: ["Authorization", "Content-Type"],
+    allowHeaders: ["Authorization", "Content-Type", "MCP-Protocol-Version", "Mcp-Session-Id"],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     maxAge: 86400,
   }),
@@ -220,6 +221,7 @@ const protectedPaths = [
   "/pages",
   "/pages/*",
   "/diagnostics",
+  "/mcp",
 ];
 for (const p of protectedPaths) {
   app.use(p, async (c, next) => {
@@ -567,6 +569,15 @@ app.get("/sync/pull", async (c) => {
   const res: SyncPullResponse = { changes, cursor, hasMore: changes.length === limit };
   return c.json(res);
 });
+
+// ---------------------------------------------------------------------------
+// MCP — recall interface for Claude and other MCP clients (see mcp.ts)
+// ---------------------------------------------------------------------------
+
+app.post("/mcp", handleMcpPost);
+// Stateless server: no SSE listen stream, no sessions to delete.
+app.get("/mcp", (c) => c.json({ error: "method_not_allowed", message: "POST JSON-RPC messages to /mcp." }, 405));
+app.delete("/mcp", (c) => c.json({ error: "method_not_allowed", message: "Stateless server — no session to delete." }, 405));
 
 // ---------------------------------------------------------------------------
 // Search (FTS5, BM25)

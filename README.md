@@ -35,11 +35,28 @@ all converge across devices.
 | Path                | What                                                            |
 | ------------------- | --------------------------------------------------------------- |
 | `shared/`           | Wire-protocol types + on-device capture (`@mozilla/readability`) |
-| `backend/`          | Cloudflare Worker: auth, ingest, search, sync, summaries, cron  |
+| `backend/`          | Cloudflare Worker: auth, ingest, search, sync, summaries, MCP, cron |
 | `extension-chrome/` | Manifest V3 extension (passive capture)                         |
 | `extension-firefox/`| Firefox for Android extension (passive capture)                  |
 | `extension-safari/` | iOS Safari Web Extension + Xcode wrapper                        |
 | `web/`              | Web dashboard (search + timeline), deploys to `webtm.io`        |
+
+## MCP recall interface
+
+The backend exposes an MCP server at **`POST https://api.webtm.io/mcp`**
+(stateless streamable HTTP) so Claude and other MCP clients can search your
+history: `search_history`, `recent_history`, `get_page_text`. Auth is the same
+Bearer JWT as the REST API (`POST /auth/login` → `token`). Pages flagged
+sensitive are excluded from results unless a call opts in. Connect from
+Claude Code:
+
+```sh
+claude mcp add --transport http wtm https://api.webtm.io/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+A companion skill teaching Claude when/how to use these tools lives at
+`.claude/skills/wtm-recall/`.
 
 ## Locked product decisions (§1 of the spec)
 

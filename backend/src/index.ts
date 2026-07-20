@@ -26,8 +26,10 @@ import {
   type NodeRow,
   type PageRow,
 } from "./db";
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { toMatchQuery } from "./search";
-import { handleMcpPost } from "./mcp";
+import { handleMcpPost, mcpRpc } from "./mcp";
+import { authorizeForm, authorizeSubmit } from "./oauth";
 import { isKnownAdultDomain, summarizePages } from "./summary";
 
 const DAY_MS = 86_400_000;
@@ -579,6 +581,11 @@ app.post("/mcp", handleMcpPost);
 app.get("/mcp", (c) => c.json({ error: "method_not_allowed", message: "POST JSON-RPC messages to /mcp." }, 405));
 app.delete("/mcp", (c) => c.json({ error: "method_not_allowed", message: "Stateless server — no session to delete." }, 405));
 
+// OAuth login/consent screen (token/register/metadata endpoints are handled by
+// OAuthProvider in the default export below and never reach this app).
+app.get("/oauth/authorize", authorizeForm);
+app.post("/oauth/authorize", authorizeSubmit);
+
 // ---------------------------------------------------------------------------
 // Search (FTS5, BM25)
 // ---------------------------------------------------------------------------
@@ -775,13 +782,60 @@ async function runRetention(env: Env): Promise<number> {
   return purged;
 }
 
+// ---------------------------------------------------------------------------
+// Worker entry: OAuth wrapper + dual-auth /mcp
+// ---------------------------------------------------------------------------
+
+// OAuthProvider owns /oauth/token, /oauth/register, the .well-known metadata
+// endpoints, and — for OAuth bearer tokens — /mcp (validated tokens land in
+// mcpApiHandler with the grant's props). Everything else falls through to the
+// Hono app above.
+const provider = new OAuthProvider<Env>({
+  apiRoute: "/mcp",
+  apiHandler: {
+    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+      if (request.method !== "POST")
+        return new Response(JSON.stringify({ error: "method_not_allowed", message: "POST JSON-RPC to /mcp." }), {
+          status: 405,
+          headers: { "Content-Type": "application/json" },
+        });
+      const props = (ctx as ExecutionContext & { props?: { userId?: string } }).props;
+      if (!props?.userId) return new Response("Unauthorized", { status: 401 });
+      return mcpRpc(env, props.userId, request);
+    },
+  },
+  defaultHandler: { fetch: app.fetch },
+  authorizeEndpoint: "/oauth/authorize",
+  tokenEndpoint: "/oauth/token",
+  clientRegistrationEndpoint: "/oauth/register",
+  scopesSupported: ["history:read"],
+});
+
 export default {
-  fetch: app.fetch,
+  /**
+   * Dual auth for /mcp: a WTM session JWT in the Authorization header (Claude
+   * Code / Desktop with --header) bypasses the OAuth layer straight into the
+   * Hono route; anything else — including OAuth access tokens and
+   * unauthenticated discovery probes — goes through OAuthProvider, which
+   * serves the 401 + WWW-Authenticate challenge that OAuth clients (claude.ai)
+   * use to find the authorization server.
+   */
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/mcp") {
+      const header = request.headers.get("Authorization") || "";
+      const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+      if (token && (await verifyToken(env.JWT_SECRET, token))) return app.fetch(request, env, ctx);
+    }
+    return provider.fetch(request, env, ctx);
+  },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       runRetention(env).then((n) => {
         if (n) console.log(`retention: purged ${n} expired pages`);
       }),
     );
+    // Garbage-collect expired OAuth tokens/grants alongside page retention.
+    ctx.waitUntil(provider.purgeExpiredData(env).then(() => undefined));
   },
 };

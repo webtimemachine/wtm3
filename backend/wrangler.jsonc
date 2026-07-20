@@ -22,6 +22,12 @@
       "bucket_name": "wtm-pages"
     }
   ],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "611be2a3c8cf4b48a1eb9e97329bd090"
+    }
+  ],
   "ai": {
     "binding": "AI"
   },

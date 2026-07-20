@@ -39,12 +39,16 @@ user; pages flagged sensitive are excluded unless explicitly requested.
 
 ## Server not connected?
 
-If no `wtm` MCP tools are available, the user needs to add the server
-(one-time, using their Web Time Machine login token):
+If no `wtm` MCP tools are available, the user needs to add the server once:
 
-    claude mcp add --transport http wtm https://api.webtm.io/mcp \
-      --header "Authorization: Bearer <WTM_JWT>"
+- **claude.ai (web/mobile) or Claude Desktop:** Settings → Connectors → Add
+  custom connector → `https://api.webtm.io/mcp`. An OAuth popup asks for their
+  WTM email/password and they're done.
+- **Claude Code:**
 
-A token comes from `POST https://api.webtm.io/auth/login` with their email +
-password (the response's `token` field). Never handle the password yourself —
-have the user obtain the token.
+      claude mcp add --transport http wtm https://api.webtm.io/mcp \
+        --header "Authorization: Bearer <WTM_JWT>"
+
+  A token comes from `POST https://api.webtm.io/auth/login` with their email +
+  password (the response's `token` field). Never handle the password yourself —
+  have the user obtain the token.

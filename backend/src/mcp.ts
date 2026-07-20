@@ -207,19 +207,30 @@ function rpcError(id: RpcRequest["id"], code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
-export async function handleMcpPost(c: Context<{ Bindings: Env; Variables: Vars }>): Promise<Response> {
-  const userId = c.get("userId");
-  const req = (await c.req.json().catch(() => null)) as RpcRequest | RpcRequest[] | null;
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * Core JSON-RPC handler, independent of how the caller authenticated —
+ * reached with a WTM JWT (Hono route below) or an OAuth access token
+ * (OAuthProvider apiHandler in index.ts).
+ */
+export async function mcpRpc(env: Env, userId: string, request: Request): Promise<Response> {
+  const req = (await request.json().catch(() => null)) as RpcRequest | RpcRequest[] | null;
   if (!req || Array.isArray(req) || typeof req.method !== "string")
-    return c.json(rpcError(null, -32600, "Expected a single JSON-RPC request object."), 400);
+    return json(rpcError(null, -32600, "Expected a single JSON-RPC request object."), 400);
 
   // Notifications (no id) get acknowledged with 202 and no body.
-  if (req.id === undefined || req.id === null) return c.body(null, 202);
+  if (req.id === undefined || req.id === null) return new Response(null, { status: 202 });
 
   switch (req.method) {
     case "initialize": {
       const requested = (req.params as { protocolVersion?: string } | undefined)?.protocolVersion;
-      return c.json(
+      return json(
         rpcResult(req.id, {
           protocolVersion: requested === "2025-03-26" ? requested : PROTOCOL_VERSION,
           capabilities: { tools: {} },
@@ -231,9 +242,9 @@ export async function handleMcpPost(c: Context<{ Bindings: Env; Variables: Vars 
       );
     }
     case "ping":
-      return c.json(rpcResult(req.id, {}));
+      return json(rpcResult(req.id, {}));
     case "tools/list":
-      return c.json(rpcResult(req.id, { tools: TOOLS }));
+      return json(rpcResult(req.id, { tools: TOOLS }));
     case "tools/call": {
       const name = (req.params as { name?: string } | undefined)?.name;
       const args = ((req.params as { arguments?: Record<string, unknown> } | undefined)?.arguments ?? {}) as Record<
@@ -242,17 +253,21 @@ export async function handleMcpPost(c: Context<{ Bindings: Env; Variables: Vars 
       >;
       try {
         let result: ToolResult;
-        if (name === "search_history") result = await searchHistory(c.env, userId, args);
-        else if (name === "recent_history") result = await recentHistory(c.env, userId, args);
-        else if (name === "get_page_text") result = await getPageText(c.env, userId, args);
-        else return c.json(rpcError(req.id, -32602, `Unknown tool: ${String(name)}`));
-        return c.json(rpcResult(req.id, result));
+        if (name === "search_history") result = await searchHistory(env, userId, args);
+        else if (name === "recent_history") result = await recentHistory(env, userId, args);
+        else if (name === "get_page_text") result = await getPageText(env, userId, args);
+        else return json(rpcError(req.id, -32602, `Unknown tool: ${String(name)}`));
+        return json(rpcResult(req.id, result));
       } catch (e) {
         console.error("mcp tool failed:", e instanceof Error ? e.message : String(e));
-        return c.json(rpcResult(req.id, err("Tool execution failed.")));
+        return json(rpcResult(req.id, err("Tool execution failed.")));
       }
     }
     default:
-      return c.json(rpcError(req.id, -32601, `Method not found: ${req.method}`));
+      return json(rpcError(req.id, -32601, `Method not found: ${req.method}`));
   }
+}
+
+export async function handleMcpPost(c: Context<{ Bindings: Env; Variables: Vars }>): Promise<Response> {
+  return mcpRpc(c.env, c.get("userId"), c.req.raw);
 }

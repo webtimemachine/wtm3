@@ -45,10 +45,17 @@ all converge across devices.
 
 The backend exposes an MCP server at **`POST https://api.webtm.io/mcp`**
 (stateless streamable HTTP) so Claude and other MCP clients can search your
-history: `search_history`, `recent_history`, `get_page_text`. Auth is the same
-Bearer JWT as the REST API (`POST /auth/login` → `token`). Pages flagged
-sensitive are excluded from results unless a call opts in. Connect from
-Claude Code:
+history: `search_history`, `recent_history`, `get_page_text`. Pages flagged
+sensitive are excluded from results unless a call opts in. Two ways to
+authenticate:
+
+- **claude.ai (web + mobile) and Claude Desktop** — full OAuth 2.1
+  (`@cloudflare/workers-oauth-provider`: dynamic client registration, PKCE,
+  refresh tokens, tokens in `OAUTH_KV`). Settings → Connectors → Add custom
+  connector → `https://api.webtm.io/mcp`, then sign in with your WTM
+  email/password on the consent screen.
+- **Claude Code / scripts** — the REST API's Bearer JWT
+  (`POST /auth/login` → `token`) works directly:
 
 ```sh
 claude mcp add --transport http wtm https://api.webtm.io/mcp \

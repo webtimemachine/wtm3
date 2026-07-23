@@ -1,11 +1,10 @@
 // Stateless MCP (Model Context Protocol) endpoint — streamable-HTTP transport,
 // JSON responses only (no SSE stream, no sessions). Lets Claude Code / Claude
 // Desktop / any MCP client search and recall the authenticated user's browsing
-// history. Auth rides the same Bearer JWT as the rest of the API, applied by
-// the middleware in index.ts before this handler runs.
-import type { Context } from "hono";
-import type { Env, Vars } from "./env";
-import { rowToPage, type PageRow } from "./db";
+// history. index.ts accepts either an opaque WTM session or an OAuth access
+// token before calling the protocol handler.
+import type { Env } from "./env";
+import { hasLegacyPageColumns, rowToPage, type PageRow } from "./db";
 import { toMatchQuery } from "./search";
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -114,8 +113,9 @@ async function searchHistory(env: Env, userId: string, args: Record<string, unkn
   const to = parseDay(args.to);
   const toEnd = to !== null ? to + DAY_MS : null;
   const sens = args.include_sensitive === true ? "" : "AND p.sensitive = 0";
+  const active = (await hasLegacyPageColumns(env)) ? "AND p.deleted = 0" : "";
 
-  const conds = [`pages_fts MATCH ?1`, `p.user_id = ?2`, `p.deleted = 0`];
+  const conds = [`pages_fts MATCH ?1`, `p.user_id = ?2`];
   const binds: unknown[] = [match, userId];
   if (from !== null) {
     binds.push(from);
@@ -130,7 +130,7 @@ async function searchHistory(env: Env, userId: string, args: Record<string, unkn
     `SELECT p.*, snippet(pages_fts, 1, '', '', '…', 16) AS snippet, bm25(pages_fts, 5.0, 1.0) AS rank
      FROM pages_fts
      JOIN pages p ON p.id = pages_fts.page_id AND p.user_id = pages_fts.user_id
-     WHERE ${conds.join(" AND ")} ${sens}
+     WHERE ${conds.join(" AND ")} ${sens} ${active}
      ORDER BY rank LIMIT ?${binds.length}`,
   )
     .bind(...binds)
@@ -145,10 +145,11 @@ async function recentHistory(env: Env, userId: string, args: Record<string, unkn
   const days = typeof args.days === "number" && Number.isFinite(args.days) ? Math.min(90, Math.max(0.04, args.days)) : 1;
   const limit = clampInt(args.limit, 1, 100, 20);
   const sens = args.include_sensitive === true ? "" : "AND sensitive = 0";
+  const active = (await hasLegacyPageColumns(env)) ? "AND deleted = 0" : "";
   const since = Date.now() - days * DAY_MS;
 
   const { results } = await env.DB.prepare(
-    `SELECT * FROM pages WHERE user_id = ?1 AND deleted = 0 ${sens} AND visited_at >= ?2
+    `SELECT * FROM pages WHERE user_id = ?1 ${sens} ${active} AND visited_at >= ?2
      ORDER BY visited_at DESC LIMIT ?3`,
   )
     .bind(userId, since, limit)
@@ -163,8 +164,11 @@ async function getPageText(env: Env, userId: string, args: Record<string, unknow
   const id = typeof args.id === "string" ? args.id : "";
   if (!id) return err("Missing page id.");
   const maxChars = clampInt(args.max_chars, 100, 100_000, 20_000);
+  const active = (await hasLegacyPageColumns(env)) ? "AND deleted = 0" : "";
 
-  const row = await env.DB.prepare("SELECT * FROM pages WHERE id = ?1 AND user_id = ?2 AND deleted = 0")
+  const row = await env.DB.prepare(
+    `SELECT * FROM pages WHERE id = ?1 AND user_id = ?2 ${active}`,
+  )
     .bind(id, userId)
     .first<PageRow>();
   if (!row) return err("Page not found.");
@@ -216,7 +220,7 @@ function json(body: unknown, status = 200): Response {
 
 /**
  * Core JSON-RPC handler, independent of how the caller authenticated —
- * reached with a WTM JWT (Hono route below) or an OAuth access token
+ * reached with a WTM session token (index.ts) or an OAuth access token
  * (OAuthProvider apiHandler in index.ts).
  */
 export async function mcpRpc(env: Env, userId: string, request: Request): Promise<Response> {
@@ -234,7 +238,7 @@ export async function mcpRpc(env: Env, userId: string, request: Request): Promis
         rpcResult(req.id, {
           protocolVersion: requested === "2025-03-26" ? requested : PROTOCOL_VERSION,
           capabilities: { tools: {} },
-          serverInfo: { name: "wtm", title: "Web Time Machine", version: "3.2.0" },
+          serverInfo: { name: "wtm", title: "Web Time Machine", version: "4.0.0" },
           instructions:
             "Search and recall the user's captured browsing history. Start with search_history; " +
             "use recent_history for time-based recall and get_page_text to read a full page.",
@@ -266,8 +270,4 @@ export async function mcpRpc(env: Env, userId: string, request: Request): Promis
     default:
       return json(rpcError(req.id, -32601, `Method not found: ${req.method}`));
   }
-}
-
-export async function handleMcpPost(c: Context<{ Bindings: Env; Variables: Vars }>): Promise<Response> {
-  return mcpRpc(c.env, c.get("userId"), c.req.raw);
 }

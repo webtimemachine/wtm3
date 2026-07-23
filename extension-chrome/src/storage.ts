@@ -1,5 +1,5 @@
 // Storage layer for the extension. Hard-won design constraints (all observed
-// live on iOS Safari — see the 3.1.x postmortem in the 3.2.0 release PR):
+// live on iOS Safari — see the 3.1.x storage regression coverage):
 //
 //  1. Safari charges storage in UTF-16 code units (2 bytes per ASCII char);
 //     desktop browsers charge UTF-8. All budgets here are in PLATFORM BYTES.
@@ -78,10 +78,8 @@ export function withStorageLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
-// safeSet — the brim escape (constraint 2). Counted for diagnostics.
+// safeSet — the brim escape (constraint 2).
 // ---------------------------------------------------------------------------
-
-let brimEscapes = 0;
 
 async function safeSet(key: string, value: unknown): Promise<void> {
   try {
@@ -94,7 +92,6 @@ async function safeSet(key: string, value: unknown): Promise<void> {
     // are idempotent), for state ~1KB of re-derivable session data. Both are
     // strictly better than the permanent wedge this escapes.
     await chrome.storage.local.remove(key);
-    brimEscapes++;
     await chrome.storage.local.set({ [key]: value });
   }
 }
@@ -248,8 +245,8 @@ async function readQueueInternal(): Promise<{ pages: CapturedPage[]; format: Que
 /**
  * Preserve (don't silently destroy) an unreadable queue payload, then clear
  * the key so capture restarts cleanly. One-shot: the first corruption is the
- * diagnostic evidence; later ones just get cleared. Size-guarded so the
- * evidence can't itself wedge a brim device.
+ * recovery evidence; later ones just get cleared. Size-guarded so the
+ * saved value cannot itself wedge a brim device.
  */
 async function quarantineCorrupt(raw: unknown): Promise<void> {
   try {
@@ -366,45 +363,4 @@ export function clearQueue(): Promise<void> {
   return withStorageLock(async () => {
     await chrome.storage.local.remove(QUEUE_KEY);
   });
-}
-
-// ---------------------------------------------------------------------------
-// Diagnostics
-// ---------------------------------------------------------------------------
-
-/** Browser-reported usage, if the platform exposes getBytesInUse. */
-export async function getBytesInUse(): Promise<{ total: number | null; state: number | null; queue: number | null }> {
-  const fn = (chrome.storage.local as { getBytesInUse?: (k?: string | string[]) => Promise<number> }).getBytesInUse;
-  if (typeof fn !== "function") return { total: null, state: null, queue: null };
-  const safe = async (k?: string | string[]) => {
-    try {
-      return await fn.call(chrome.storage.local, k);
-    } catch {
-      return null;
-    }
-  };
-  const [total, state, queue] = await Promise.all([safe(), safe(STATE_KEY), safe(QUEUE_KEY)]);
-  return { total, state, queue };
-}
-
-export async function getStorageDiagnostics(): Promise<{
-  envelopeFormat: QueueFormat;
-  queueLength: number;
-  accountingMode: "utf16" | "utf8";
-  hasCompressionStream: boolean;
-  ceiling: Ceiling | null;
-  corruptKey: { present: boolean; bytes?: number };
-  brimEscapes: number;
-}> {
-  const read = await readQueueInternal();
-  const corrupt = await chrome.storage.local.get(CORRUPT_KEY);
-  return {
-    envelopeFormat: read.format,
-    queueLength: read.pages.length,
-    accountingMode: PLATFORM === "safari-ios" ? "utf16" : "utf8",
-    hasCompressionStream: typeof CompressionStream !== "undefined",
-    ceiling: await getCeiling(),
-    corruptKey: corrupt[CORRUPT_KEY] != null ? { present: true, bytes: storedSize(corrupt[CORRUPT_KEY]) } : { present: false },
-    brimEscapes,
-  };
 }

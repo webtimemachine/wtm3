@@ -3,7 +3,7 @@
   "name": "wtm-backend",
   "account_id": "b732618f85b1356a957deddd468c4f58",
   "main": "src/index.ts",
-  "compatibility_date": "2025-06-01",
+  "compatibility_date": "2026-07-23",
   "observability": {
     "enabled": true
   },
@@ -31,6 +31,7 @@
   "ai": {
     "binding": "AI"
   },
+  "send_email": [{ "name": "EMAIL" }],
   "triggers": {
     "crons": ["0 4 * * *"]
   },

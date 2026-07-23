@@ -31,8 +31,10 @@ test("upgrade path: wedged 3.1.x device self-heals on first enqueue", async () =
   await storage.enqueue([page(999)]); // pre-fix this threw / silently trimmed forever
   const stored = fake.snapshot()["wtm:queue"];
   assert.equal(stored.v, 2, "queue re-encoded compressed");
-  const diags = await storage.getStorageDiagnostics();
-  assert.ok(diags.brimEscapes >= 1, "recovered via remove-then-set");
+  assert.ok(
+    fake.opLog.some(([op, key]) => op === "remove" && key === "wtm:queue"),
+    "recovered via remove-then-set",
+  );
   assert.ok((await storage.getQueueCount()) >= 40, "backlog survives the migration (compressed fits)");
   assert.ok(fake.usage() < 400_000, "storage pressure actually relieved");
 });
@@ -52,7 +54,13 @@ test("pessimistic: remove() failing degrades to trim (capture never throws) whil
   // counts over quota — the trim loop shrinks until the payload squeezes into
   // the remaining headroom. Lossy, but capture must not throw.
   await storage.enqueue([page(999)]);
-  assert.ok((await storage.getQueueCount()) >= 0, "no throw; queue in a consistent state");
+  const remaining = await storage.getQueueCount();
+  assert.ok(remaining > 0 && remaining < 50, "controlled trim preserves as much of the backlog as fits");
+  assert.deepEqual(
+    { v: fake.snapshot()["wtm:queue"].v, n: fake.snapshot()["wtm:queue"].n },
+    { v: 2, n: remaining },
+    "queue remains readable after the pessimistic recovery",
+  );
 });
 
 test("hard wedge (zero headroom + remove fails): surfaces the tagged paused error", async () => {

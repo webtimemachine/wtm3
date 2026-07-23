@@ -2,8 +2,6 @@
 // This is the single source of truth for the contract between every client
 // (Chrome extension, iOS Safari extension, web dashboard) and the Cloudflare backend.
 
-export const API_VERSION = 1;
-
 /** Production backend origin (clients allow overriding it at login). */
 export const DEFAULT_BACKEND = "https://api.webtm.io";
 
@@ -21,7 +19,7 @@ export function isValidRetentionDays(d: number): boolean {
 }
 
 /** Platform identifier for a registered node (device). */
-export type Platform = "chrome" | "safari-ios" | "web" | "cli" | string;
+export type Platform = "chrome" | "firefox-android" | "safari-ios" | "web" | "cli";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -30,11 +28,13 @@ export type Platform = "chrome" | "safari-ios" | "web" | "cli" | string;
 export interface RegisterRequest {
   email: string;
   password: string;
+  client?: string;
 }
 
 export interface LoginRequest {
   email: string;
   password: string;
+  client?: string;
 }
 
 export interface UserInfo {
@@ -55,6 +55,21 @@ export interface AuthResponse {
   user: UserInfo;
 }
 
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+  client?: string;
+}
+
+export interface PasswordResetConfirmRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface AccountDeleteRequest {
+  password: string;
+}
+
 // ---------------------------------------------------------------------------
 // Nodes (devices)
 // ---------------------------------------------------------------------------
@@ -72,46 +87,6 @@ export interface NodeInfo {
   platform: Platform;
   createdAt: number;
   lastSeenAt: number;
-}
-
-// ---------------------------------------------------------------------------
-// Diagnostics — self-reported client state for support/debugging
-// ---------------------------------------------------------------------------
-
-/** A snapshot of local sync state a user (or the client itself) can report. */
-export interface DiagnosticReport {
-  platform: Platform;
-  extensionVersion: string;
-  /** Epoch ms when the snapshot was taken (device clock). */
-  reportedAt: number;
-  deviceId: string | null;
-  queueLength: number;
-  queueRawBytes: number;
-  queueStoredBytes: number;
-  /** The learned real-quota estimate storage.ts falls back to, if any. */
-  quotaCeilingBytes: number | null;
-  lastSync: number | null;
-  lastError: string | null;
-  lastErrorAt: number | null;
-  /** Optional free-text note from the user describing what they saw. */
-  note?: string;
-
-  // --- v2 fields (3.2.0+; all optional so old clients keep validating) ---
-  /** What fired this report: a user click, the auto-report on pause, or a queue clear. */
-  trigger?: "user" | "auto" | "clear";
-  /** Whether the context has CompressionStream (the original iOS mystery). */
-  hasCompressionStream?: boolean;
-  /** Stored queue format actually found: "v2" | "v1" | "plain" | "absent" | "corrupt". */
-  envelopeFormat?: string;
-  /** How this platform's storage is charged: "utf16" (Safari) or "utf8". */
-  accountingMode?: string;
-  /** When the learned quota ceiling was learned, if one is active. */
-  ceilingLearnedAt?: number | null;
-  corruptKeyPresent?: boolean;
-  corruptKeyBytes?: number;
-  /** How many times the remove-then-set brim escape fired this session. */
-  brimEscapes?: number;
-  bytesInUseTotal?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,10 +124,6 @@ export interface PageRecord {
   byline: string | null;
   lang: string | null;
   deviceId: string | null;
-  /** Tombstone flag — deleted pages still sync so deletion propagates. */
-  deleted: boolean;
-  /** Per-user monotonic change sequence (sync cursor). */
-  seq: number;
   /** Epoch ms at which retention will purge this record. */
   expiresAt: number | null;
   /** Whether the full readable text blob is available in object storage. */
@@ -175,22 +146,10 @@ export interface SearchHit extends PageRecord {
 export interface SyncPushRequest {
   deviceId: string;
   pages: CapturedPage[];
-  /** Page ids to tombstone (manual deletes originating on this device). */
-  deletes?: string[];
 }
 
 export interface SyncPushResponse {
   accepted: number;
-  deleted: number;
-  /** Highest change seq after applying this push. */
-  seq: number;
-}
-
-export interface SyncPullResponse {
-  changes: PageRecord[];
-  /** Pass this back as `since` on the next pull. */
-  cursor: number;
-  hasMore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,16 +184,20 @@ export interface RecentResponse {
 export const Routes = {
   register: "/auth/register",
   login: "/auth/login",
+  logout: "/auth/logout",
+  logoutEverywhere: "/auth/logout-everywhere",
+  changePassword: "/auth/password",
+  requestPasswordReset: "/auth/password-reset/request",
+  confirmPasswordReset: "/auth/password-reset/confirm",
+  account: "/account",
   me: "/auth/me",
   settings: "/settings",
   nodes: "/nodes",
   node: (id: string) => `/nodes/${id}`,
   syncPush: "/sync/push",
-  syncPull: "/sync/pull",
   search: "/search",
   recent: "/pages",
   page: (id: string) => `/pages/${id}`,
   pageText: (id: string) => `/pages/${id}/text`,
-  diagnostics: "/diagnostics",
   health: "/health",
 } as const;

@@ -10,7 +10,6 @@ test("reads never write: popup-safe getQueue on corrupt data", async () => {
   const storage = await loadBundle("storage", "chrome", makeFakeChrome(fake));
   assert.deepEqual(await storage.getQueue(), []);
   assert.deepEqual(fake.snapshot()["wtm:queue"], CORRUPT_ENVELOPE, "corrupt payload untouched by a read");
-  assert.equal((await storage.getStorageDiagnostics()).envelopeFormat, "corrupt");
 });
 
 test("next mutation quarantines the evidence instead of silently overwriting", async () => {
@@ -20,7 +19,6 @@ test("next mutation quarantines the evidence instead of silently overwriting", a
   const snap = fake.snapshot();
   assert.deepEqual(snap["wtm:queue:corrupt"]?.raw, CORRUPT_ENVELOPE, "evidence preserved");
   assert.equal(snap["wtm:queue"].n, 1, "clean queue restarted with the new capture");
-  assert.equal((await storage.getStorageDiagnostics()).corruptKey.present, true);
 });
 
 test("quarantine is one-shot and size-guarded", async () => {

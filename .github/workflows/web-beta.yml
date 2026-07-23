@@ -51,7 +51,7 @@ jobs:
         if: ${{ env.AMO_JWT_ISSUER != '' }}
         env:
           # Unique version per build so AMO accepts each unlisted signing.
-          WTM_FIREFOX_VERSION: 3.0.0.${{ github.run_number }}
+          WTM_FIREFOX_VERSION: 4.0.0.${{ github.run_number }}
         run: |
           pnpm --filter @wtm/extension-firefox build
           node extension-firefox/scripts/amo-publish.mjs unlisted web/public/downloads

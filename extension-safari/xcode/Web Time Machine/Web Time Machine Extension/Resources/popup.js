@@ -10,17 +10,21 @@
   var Routes = {
     register: "/auth/register",
     login: "/auth/login",
+    logout: "/auth/logout",
+    logoutEverywhere: "/auth/logout-everywhere",
+    changePassword: "/auth/password",
+    requestPasswordReset: "/auth/password-reset/request",
+    confirmPasswordReset: "/auth/password-reset/confirm",
+    account: "/account",
     me: "/auth/me",
     settings: "/settings",
     nodes: "/nodes",
     node: (id) => `/nodes/${id}`,
     syncPush: "/sync/push",
-    syncPull: "/sync/pull",
     search: "/search",
     recent: "/pages",
     page: (id) => `/pages/${id}`,
     pageText: (id) => `/pages/${id}/text`,
-    diagnostics: "/diagnostics",
     health: "/health"
   };
 
@@ -41,12 +45,6 @@
       this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
       this.token = opts.token ?? null;
       this.f = opts.fetchImpl ?? fetch.bind(globalThis);
-    }
-    setToken(token) {
-      this.token = token;
-    }
-    get hasToken() {
-      return !!this.token;
     }
     async req(method, path, body) {
       const headers = {};
@@ -75,6 +73,24 @@
     login(req) {
       return this.req("POST", Routes.login, req);
     }
+    async logout() {
+      await this.req("POST", Routes.logout);
+    }
+    async logoutEverywhere() {
+      await this.req("POST", Routes.logoutEverywhere);
+    }
+    changePassword(req) {
+      return this.req("POST", Routes.changePassword, req);
+    }
+    async requestPasswordReset(email) {
+      await this.req("POST", Routes.requestPasswordReset, { email });
+    }
+    async confirmPasswordReset(req) {
+      await this.req("POST", Routes.confirmPasswordReset, req);
+    }
+    async deleteAccount(req) {
+      await this.req("DELETE", Routes.account, req);
+    }
     me() {
       return this.req("GET", Routes.me);
     }
@@ -95,9 +111,6 @@
     push(req) {
       return this.req("POST", Routes.syncPush, req);
     }
-    pull(since, limit = 500) {
-      return this.req("GET", `${Routes.syncPull}?since=${since}&limit=${limit}`);
-    }
     // --- search & pages ---
     search(query, opts = {}) {
       const p = new URLSearchParams({ q: query });
@@ -112,9 +125,6 @@
       const qs = p.toString();
       return this.req("GET", qs ? `${Routes.recent}?${qs}` : Routes.recent);
     }
-    getPage(id) {
-      return this.req("GET", Routes.page(id));
-    }
     async getText(id) {
       const headers = {};
       if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
@@ -124,10 +134,6 @@
     }
     async deletePage(id) {
       await this.req("DELETE", Routes.page(id));
-    }
-    // --- diagnostics ---
-    async reportDiagnostics(report) {
-      await this.req("POST", Routes.diagnostics, report);
     }
   };
 
@@ -156,6 +162,8 @@
   }
 
   // ../extension-chrome/src/config.ts
+  var injectedPlatform = true ? "safari-ios" : "chrome";
+  var PLATFORM = injectedPlatform === "firefox-android" || injectedPlatform === "safari-ios" ? injectedPlatform : "chrome";
   var DEFAULT_STATE = {
     baseUrl: DEFAULT_BACKEND,
     token: null,
@@ -165,8 +173,7 @@
     captureEnabled: true,
     lastSync: null,
     lastError: null,
-    lastErrorAt: null,
-    lastAutoReportAt: null
+    lastErrorAt: null
   };
 
   // ../node_modules/.pnpm/fflate@0.8.3/node_modules/fflate/esm/browser.js
@@ -684,7 +691,8 @@
       loginBtn.disabled = registerBtn.disabled = true;
       try {
         const c = new WtmClient({ baseUrl });
-        const res = register ? await c.register({ email, password }) : await c.login({ email, password });
+        const clientName = PLATFORM === "safari-ios" ? "Safari extension" : PLATFORM === "firefox-android" ? "Firefox extension" : "Chrome extension";
+        const res = register ? await c.register({ email, password, client: clientName }) : await c.login({ email, password, client: clientName });
         await mutate(
           { baseUrl, token: res.token, user: res.user, lastError: null, lastErrorAt: null },
           { thenFlush: true }
@@ -742,6 +750,10 @@
     });
     const logout = h("button", { class: "link" }, ["Log out"]);
     logout.addEventListener("click", async () => {
+      try {
+        await (await client()).logout();
+      } catch {
+      }
       try {
         await mutate({ token: null, user: null });
         await renderAuth();
@@ -857,35 +869,21 @@
         ])
       );
     }
-    const reportMsg = h("span", { class: "hint" }, []);
-    const reportBtn = h("button", { class: "secondary tiny" }, ["Report sync issue"]);
+    const queueMsg = h("span", { class: "hint" }, []);
     const clearBtn = h("button", { class: "secondary tiny" }, ["Clear stuck queue"]);
-    reportBtn.addEventListener("click", async () => {
-      reportBtn.disabled = true;
-      reportMsg.textContent = "Sending\u2026";
-      try {
-        const resp = await sendBg({ type: "reportDiagnostics" });
-        if (!resp?.ok) throw new Error(resp?.error ?? "failed");
-        reportMsg.textContent = "Sent \u2014 thanks, we'll take a look.";
-      } catch {
-        reportMsg.textContent = "Couldn't send (offline?)";
-      } finally {
-        reportBtn.disabled = false;
-      }
-    });
     clearBtn.addEventListener("click", async () => {
       const queued = await getQueueCount();
       if (queued && !confirm(`Discard ${queued} unsynced page(s) from this device? This can't be undone.`)) {
         return;
       }
       clearBtn.disabled = true;
-      reportMsg.textContent = "";
+      queueMsg.textContent = "";
       try {
         const resp = await sendBg({ type: "clearQueue" });
         if (!resp?.ok) throw new Error(resp?.error ?? "failed");
-        reportMsg.textContent = "Queue cleared.";
+        queueMsg.textContent = "Queue cleared.";
       } catch {
-        reportMsg.textContent = "Couldn't clear the queue.";
+        queueMsg.textContent = "Couldn't clear the queue.";
       } finally {
         clearBtn.disabled = false;
       }
@@ -893,13 +891,35 @@
     children.push(
       h("div", { class: "field" }, [
         h("label", {}, ["Sync stuck?"]),
-        h("div", { class: "row" }, [reportBtn, clearBtn]),
-        reportMsg
+        h("div", { class: "row" }, [clearBtn, queueMsg])
+      ])
+    );
+    const everywhereBtn = h("button", { class: "secondary tiny" }, [
+      "Log out everywhere"
+    ]);
+    const everywhereMsg = h("span", { class: "hint" }, []);
+    everywhereBtn.addEventListener("click", async () => {
+      if (!confirm("Log out every Web Time Machine session and connected AI client?")) return;
+      everywhereBtn.disabled = true;
+      everywhereMsg.textContent = "";
+      try {
+        await (await client()).logoutEverywhere();
+        await mutate({ token: null, user: null });
+        await renderAuth();
+      } catch (e) {
+        everywhereMsg.textContent = e instanceof WtmApiError ? e.message : "Could not log out everywhere.";
+        everywhereBtn.disabled = false;
+      }
+    });
+    children.push(
+      h("div", { class: "field" }, [
+        h("label", {}, ["Account security"]),
+        h("div", { class: "row" }, [everywhereBtn, everywhereMsg])
       ])
     );
     return h("details", { class: "section settings" }, children);
   }
-  function renderHit(p, results) {
+  function renderHit(p) {
     const chosen = chooseSubline({ ..."snippet" in p && { snippet: p.snippet }, summary: p.summary, summaryStatus: p.summaryStatus });
     const sub = chosen.kind === "snippet" ? h("div", { class: "snippet", html: snippetHtml(chosen.value) }) : chosen.kind === "summary" ? h("div", { class: "summary" }, [chosen.value]) : chosen.kind === "pending" ? h("div", { class: "summary hint" }, ["Summarizing\u2026"]) : null;
     const del = h("button", { class: "secondary tiny", title: "Delete everywhere" }, ["Delete"]);
@@ -926,6 +946,12 @@
     const row = h("div", { class: "hit" }, children);
     return row;
   }
+  async function requireRelogin(error) {
+    if (!(error instanceof WtmApiError) || error.status !== 401) return false;
+    await mutate({ token: null, user: null });
+    await renderAuth("Your session ended. Log in once to continue.");
+    return true;
+  }
   async function loadRecent(results) {
     try {
       const { pages } = await (await client()).recent({ limit: 30 });
@@ -934,8 +960,9 @@
         results.append(h("div", { class: "empty" }, ["No pages captured yet. Browse a few sites!"]));
         return;
       }
-      for (const p of pages) results.append(renderHit(p, results));
+      for (const p of pages) results.append(renderHit(p));
     } catch (e) {
+      if (await requireRelogin(e)) return;
       results.replaceChildren(
         h("div", { class: "empty error" }, [e instanceof WtmApiError ? e.message : "Failed to load."])
       );
@@ -950,8 +977,9 @@
         results.append(h("div", { class: "empty" }, [`No matches for \u201C${q}\u201D.`]));
         return;
       }
-      for (const hit of res.hits) results.append(renderHit(hit, results));
+      for (const hit of res.hits) results.append(renderHit(hit));
     } catch (e) {
+      if (await requireRelogin(e)) return;
       results.replaceChildren(
         h("div", { class: "empty error" }, [e instanceof WtmApiError ? e.message : "Search failed."])
       );

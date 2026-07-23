@@ -5,17 +5,21 @@
   var Routes = {
     register: "/auth/register",
     login: "/auth/login",
+    logout: "/auth/logout",
+    logoutEverywhere: "/auth/logout-everywhere",
+    changePassword: "/auth/password",
+    requestPasswordReset: "/auth/password-reset/request",
+    confirmPasswordReset: "/auth/password-reset/confirm",
+    account: "/account",
     me: "/auth/me",
     settings: "/settings",
     nodes: "/nodes",
     node: (id) => `/nodes/${id}`,
     syncPush: "/sync/push",
-    syncPull: "/sync/pull",
     search: "/search",
     recent: "/pages",
     page: (id) => `/pages/${id}`,
     pageText: (id) => `/pages/${id}/text`,
-    diagnostics: "/diagnostics",
     health: "/health"
   };
 
@@ -36,12 +40,6 @@
       this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
       this.token = opts.token ?? null;
       this.f = opts.fetchImpl ?? fetch.bind(globalThis);
-    }
-    setToken(token) {
-      this.token = token;
-    }
-    get hasToken() {
-      return !!this.token;
     }
     async req(method, path, body) {
       const headers = {};
@@ -70,6 +68,24 @@
     login(req) {
       return this.req("POST", Routes.login, req);
     }
+    async logout() {
+      await this.req("POST", Routes.logout);
+    }
+    async logoutEverywhere() {
+      await this.req("POST", Routes.logoutEverywhere);
+    }
+    changePassword(req) {
+      return this.req("POST", Routes.changePassword, req);
+    }
+    async requestPasswordReset(email) {
+      await this.req("POST", Routes.requestPasswordReset, { email });
+    }
+    async confirmPasswordReset(req) {
+      await this.req("POST", Routes.confirmPasswordReset, req);
+    }
+    async deleteAccount(req) {
+      await this.req("DELETE", Routes.account, req);
+    }
     me() {
       return this.req("GET", Routes.me);
     }
@@ -90,9 +106,6 @@
     push(req) {
       return this.req("POST", Routes.syncPush, req);
     }
-    pull(since, limit = 500) {
-      return this.req("GET", `${Routes.syncPull}?since=${since}&limit=${limit}`);
-    }
     // --- search & pages ---
     search(query, opts = {}) {
       const p = new URLSearchParams({ q: query });
@@ -107,9 +120,6 @@
       const qs = p.toString();
       return this.req("GET", qs ? `${Routes.recent}?${qs}` : Routes.recent);
     }
-    getPage(id) {
-      return this.req("GET", Routes.page(id));
-    }
     async getText(id) {
       const headers = {};
       if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
@@ -120,14 +130,11 @@
     async deletePage(id) {
       await this.req("DELETE", Routes.page(id));
     }
-    // --- diagnostics ---
-    async reportDiagnostics(report) {
-      await this.req("POST", Routes.diagnostics, report);
-    }
   };
 
   // ../extension-chrome/src/config.ts
-  var PLATFORM = true ? "safari-ios" : "chrome";
+  var injectedPlatform = true ? "safari-ios" : "chrome";
+  var PLATFORM = injectedPlatform === "firefox-android" || injectedPlatform === "safari-ios" ? injectedPlatform : "chrome";
   function deviceOwnerKey(baseUrl, userId) {
     return `${baseUrl}|${userId}`;
   }
@@ -140,8 +147,7 @@
     captureEnabled: true,
     lastSync: null,
     lastError: null,
-    lastErrorAt: null,
-    lastAutoReportAt: null
+    lastErrorAt: null
   };
 
   // ../node_modules/.pnpm/fflate@0.8.3/node_modules/fflate/esm/browser.js
@@ -1007,14 +1013,12 @@
     );
     return run;
   }
-  var brimEscapes = 0;
   async function safeSet(key, value) {
     try {
       await chrome.storage.local.set({ [key]: value });
     } catch (e) {
       if (!isQuotaError(e)) throw e;
       await chrome.storage.local.remove(key);
-      brimEscapes++;
       await chrome.storage.local.set({ [key]: value });
     }
   }
@@ -1047,10 +1051,6 @@
       ceilingDirty = false;
     } catch {
     }
-  }
-  async function getCeiling() {
-    await loadCeiling();
-    return ceiling;
   }
   async function raiseCeilingAfterCleanDrain() {
     await loadCeiling();
@@ -1196,38 +1196,11 @@
       await chrome.storage.local.remove(QUEUE_KEY);
     });
   }
-  async function getBytesInUse() {
-    const fn = chrome.storage.local.getBytesInUse;
-    if (typeof fn !== "function") return { total: null, state: null, queue: null };
-    const safe = async (k) => {
-      try {
-        return await fn.call(chrome.storage.local, k);
-      } catch {
-        return null;
-      }
-    };
-    const [total, state, queue] = await Promise.all([safe(), safe(STATE_KEY), safe(QUEUE_KEY)]);
-    return { total, state, queue };
-  }
-  async function getStorageDiagnostics() {
-    const read = await readQueueInternal();
-    const corrupt = await chrome.storage.local.get(CORRUPT_KEY);
-    return {
-      envelopeFormat: read.format,
-      queueLength: read.pages.length,
-      accountingMode: PLATFORM === "safari-ios" ? "utf16" : "utf8",
-      hasCompressionStream: typeof CompressionStream !== "undefined",
-      ceiling: await getCeiling(),
-      corruptKey: corrupt[CORRUPT_KEY] != null ? { present: true, bytes: storedSize(corrupt[CORRUPT_KEY]) } : { present: false },
-      brimEscapes
-    };
-  }
 
   // ../extension-chrome/src/background.ts
   var FLUSH_ALARM = "wtm:flush";
   var BATCH = 50;
   var BATCH_SOFT_BYTES = 1e6;
-  var AUTO_REPORT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1e3;
   function takeBatch(queue) {
     const batch = [];
     let bytes = 0;
@@ -1270,14 +1243,8 @@
           return sendResponse({ ok: true, state });
         }
         if (msg?.type === "clearQueue") {
-          await sendDiagnostics("clear").catch(() => {
-          });
           await clearQueue();
           return sendResponse({ ok: true, state: await getState() });
-        }
-        if (msg?.type === "reportDiagnostics") {
-          await sendDiagnostics("user");
-          return sendResponse({ ok: true });
         }
         sendResponse({ ok: false, error: "unknown_message" });
       } catch (e) {
@@ -1332,7 +1299,6 @@
       const msg = e instanceof WtmApiError ? `${e.status} ${e.message}` : paused ? "Device storage is full for this extension \u2014 capture is paused. Free up storage or use Settings \u2192 Clear stuck queue." : isQuotaError(e) ? `Device storage was full \u2014 oldest unsynced captures were trimmed. Sync continues. [${e.message?.slice(0, 100) ?? e}]` : String(e);
       try {
         await applyStatePatch({ lastError: msg, lastErrorAt: Date.now() });
-        if (paused) await maybeAutoReport();
         if (e instanceof WtmApiError && e.status === 401) {
           await applyStatePatch({ token: null });
         }
@@ -1341,49 +1307,6 @@
     } finally {
       flushing = false;
     }
-  }
-  async function maybeAutoReport() {
-    const st = await getState();
-    if (st.lastAutoReportAt && Date.now() - st.lastAutoReportAt < AUTO_REPORT_MIN_INTERVAL_MS) return;
-    await applyStatePatch({ lastAutoReportAt: Date.now() });
-    await sendDiagnostics("auto").catch(() => {
-    });
-  }
-  async function sendDiagnostics(trigger) {
-    const st = await getState();
-    if (!st.token || !st.baseUrl) throw new Error("Not signed in.");
-    const report = await buildDiagnosticReport(trigger);
-    const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
-    await client.reportDiagnostics(report);
-  }
-  async function buildDiagnosticReport(trigger) {
-    const st = await getState();
-    const queue = await getQueue();
-    const bytes = await getBytesInUse();
-    const diags = await getStorageDiagnostics();
-    const ceiling2 = await getCeiling();
-    return {
-      platform: PLATFORM,
-      extensionVersion: chrome.runtime.getManifest().version,
-      reportedAt: Date.now(),
-      deviceId: st.deviceId,
-      queueLength: queue.length,
-      queueRawBytes: new TextEncoder().encode(JSON.stringify(queue)).length,
-      queueStoredBytes: bytes.queue ?? -1,
-      quotaCeilingBytes: ceiling2?.bytes ?? null,
-      lastSync: st.lastSync,
-      lastError: st.lastError,
-      lastErrorAt: st.lastErrorAt,
-      trigger,
-      hasCompressionStream: diags.hasCompressionStream,
-      envelopeFormat: diags.envelopeFormat,
-      accountingMode: diags.accountingMode,
-      ceilingLearnedAt: ceiling2?.learnedAt ?? null,
-      corruptKeyPresent: diags.corruptKey.present,
-      corruptKeyBytes: diags.corruptKey.bytes,
-      brimEscapes: diags.brimEscapes,
-      bytesInUseTotal: bytes.total
-    };
   }
   function deviceName() {
     const ua = navigator.userAgent;

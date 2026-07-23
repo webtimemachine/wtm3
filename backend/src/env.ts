@@ -9,8 +9,8 @@ export interface Env {
   /** Injected by OAuthProvider on requests it routes to the default handler. */
   OAUTH_PROVIDER: OAuthHelpers;
 
-  /** HMAC secret for signing session JWTs (wrangler secret). */
-  JWT_SECRET: string;
+  /** Cloudflare Email Service binding for password-reset messages. */
+  EMAIL?: SendEmail;
   /** Workers AI model id used for one-line summaries. */
   SUMMARY_MODEL: string;
   /** Default retention window applied to new users. */
@@ -21,4 +21,5 @@ export interface Env {
 export interface Vars {
   userId: string;
   email: string;
+  sessionId: string;
 }

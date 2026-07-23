@@ -12,7 +12,15 @@ pnpm --filter @wtm/extension-chrome icons   # if icons/ not generated yet
 pnpm --filter @wtm/extension-safari build    # -> extension-safari/wtm-extension/
 ```
 
-## 2. Generate the Xcode project (needs full Xcode)
+## 2. Sync or generate the Xcode project
+
+For the checked-in project, copy a new web-extension build into its Resources:
+
+```bash
+pnpm --filter @wtm/extension-safari sync-resources
+```
+
+To regenerate the project itself, you need full Xcode.
 
 Command Line Tools is **not** enough — install Xcode and point to it:
 
@@ -45,8 +53,7 @@ Output: `extension-safari/xcode/`.
 
 ## Notes / Safari caveats
 
-- Re-run steps 1–2 whenever the shared JS changes (or just rebuild and re-copy
-  `wtm-extension/` into the Xcode project's Resources).
+- Rebuild and run `sync-resources` whenever the shared JS changes.
 - Safari supports the `chrome.*` namespace, `storage`, `alarms`, content scripts,
   and an MV3 `service_worker`, so the shared code runs as-is. If a future Safari
   version balks at the module service worker, switch `manifest.json` background to

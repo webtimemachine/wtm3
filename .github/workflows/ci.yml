@@ -24,6 +24,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm sync:skills
+      - run: git diff --exit-code -- skills .agents/skills .claude/skills
       - run: pnpm typecheck
       - run: pnpm -r --if-present test
       - run: pnpm build

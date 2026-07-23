@@ -3,17 +3,14 @@
 // what makes storage.ts's per-context mutex a real mutex. Owns the capture
 // queue and syncs it to the backend.
 import { WtmApiError, WtmClient } from "@wtm/shared/api";
-import type { CapturedPage, DiagnosticReport } from "@wtm/shared";
+import type { CapturedPage } from "@wtm/shared";
 import { deviceOwnerKey, PLATFORM, type ExtState } from "./config";
 import {
   applyStatePatch,
   clearQueue,
   enqueue,
-  getBytesInUse,
-  getCeiling,
   getQueue,
   getState,
-  getStorageDiagnostics,
   isQuotaError,
   raiseCeilingAfterCleanDrain,
   removeSyncedIds,
@@ -24,8 +21,6 @@ const BATCH = 50;
 // Cap the JSON payload of one push. 50 text-heavy mobile captures can exceed
 // several MB, which flaky mobile networks reject; smaller pushes land.
 const BATCH_SOFT_BYTES = 1_000_000;
-// At most one automatic capture-paused diagnostic per day.
-const AUTO_REPORT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function takeBatch(queue: CapturedPage[]): CapturedPage[] {
   const batch: CapturedPage[] = [];
@@ -73,15 +68,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return sendResponse({ ok: true, state });
       }
       if (msg?.type === "clearQueue") {
-        // Capture the evidence before destroying it: a diagnostic report of
-        // the stuck state goes out (best effort) ahead of the clear.
-        await sendDiagnostics("clear").catch(() => {});
         await clearQueue();
         return sendResponse({ ok: true, state: await getState() });
-      }
-      if (msg?.type === "reportDiagnostics") {
-        await sendDiagnostics("user");
-        return sendResponse({ ok: true });
       }
       sendResponse({ ok: false, error: "unknown_message" });
     } catch (e) {
@@ -166,7 +154,6 @@ async function flush(): Promise<void> {
             : String(e);
     try {
       await applyStatePatch({ lastError: msg, lastErrorAt: Date.now() });
-      if (paused) await maybeAutoReport();
       if (e instanceof WtmApiError && e.status === 401) {
         // Token expired/invalid — drop it so the popup prompts a re-login;
         // keep deviceId/deviceOwner so the same account reuses this node.
@@ -178,55 +165,6 @@ async function flush(): Promise<void> {
   } finally {
     flushing = false;
   }
-}
-
-/** One automatic diagnostic when capture enters the paused state, ≤1/day. */
-async function maybeAutoReport(): Promise<void> {
-  const st = await getState();
-  if (st.lastAutoReportAt && Date.now() - st.lastAutoReportAt < AUTO_REPORT_MIN_INTERVAL_MS) return;
-  // Persist the rate-limit stamp BEFORE sending: a duplicate report is
-  // cheaper than a send-loop if the stamp write keeps failing afterward.
-  await applyStatePatch({ lastAutoReportAt: Date.now() });
-  await sendDiagnostics("auto").catch(() => {});
-}
-
-/** Build and POST a diagnostic snapshot. Throws only for the "user" trigger. */
-async function sendDiagnostics(trigger: "user" | "auto" | "clear"): Promise<void> {
-  const st = await getState();
-  if (!st.token || !st.baseUrl) throw new Error("Not signed in.");
-  const report = await buildDiagnosticReport(trigger);
-  const client = new WtmClient({ baseUrl: st.baseUrl, token: st.token });
-  await client.reportDiagnostics(report);
-}
-
-async function buildDiagnosticReport(trigger: "user" | "auto" | "clear"): Promise<DiagnosticReport> {
-  const st = await getState();
-  const queue = await getQueue();
-  const bytes = await getBytesInUse();
-  const diags = await getStorageDiagnostics();
-  const ceiling = await getCeiling();
-  return {
-    platform: PLATFORM,
-    extensionVersion: chrome.runtime.getManifest().version,
-    reportedAt: Date.now(),
-    deviceId: st.deviceId,
-    queueLength: queue.length,
-    queueRawBytes: new TextEncoder().encode(JSON.stringify(queue)).length,
-    queueStoredBytes: bytes.queue ?? -1,
-    quotaCeilingBytes: ceiling?.bytes ?? null,
-    lastSync: st.lastSync,
-    lastError: st.lastError,
-    lastErrorAt: st.lastErrorAt,
-    trigger,
-    hasCompressionStream: diags.hasCompressionStream,
-    envelopeFormat: diags.envelopeFormat,
-    accountingMode: diags.accountingMode,
-    ceilingLearnedAt: ceiling?.learnedAt ?? null,
-    corruptKeyPresent: diags.corruptKey.present,
-    corruptKeyBytes: diags.corruptKey.bytes,
-    brimEscapes: diags.brimEscapes,
-    bytesInUseTotal: bytes.total,
-  };
 }
 
 function deviceName(): string {

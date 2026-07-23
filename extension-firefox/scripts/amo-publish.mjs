@@ -42,7 +42,7 @@ if (!fs.existsSync(manifestPath)) {
 const artifactsDir = path.join(root, "web-ext-artifacts");
 
 // AMO rejects re-uploading an already-signed version. Beta (unlisted) builds set
-// WTM_FIREFOX_VERSION to a unique value (e.g. 3.0.0.<run-number>) so each build
+// WTM_FIREFOX_VERSION to a unique value (e.g. 4.0.0.<run-number>) so each build
 // signs cleanly. Listed releases leave it unset and use the committed version.
 const versionOverride = process.env.WTM_FIREFOX_VERSION;
 if (versionOverride) {

@@ -5,7 +5,13 @@
 // token before calling the protocol handler.
 import type { Env } from "./env";
 import { hasLegacyPageColumns, rowToPage, type PageRow } from "./db";
-import { toMatchQuery } from "./search";
+import {
+  addSearchFilters,
+  normalizeSiteFilter,
+  parseSearchSort,
+  searchOrder,
+  toMatchQuery,
+} from "./search";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const DAY_MS = 86_400_000;
@@ -38,6 +44,15 @@ const TOOLS = [
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Max results (default 10)" },
         from: { type: "string", description: "Only pages visited on/after this ISO date (e.g. 2026-07-01)" },
         to: { type: "string", description: "Only pages visited on/before this ISO date" },
+        site: {
+          type: "string",
+          description: "Only pages from this hostname or URL, including subdomains (e.g. nytimes.com)",
+        },
+        sort: {
+          type: "string",
+          enum: ["relevance", "newest", "oldest"],
+          description: "Result order (default relevance)",
+        },
         include_sensitive: {
           type: "boolean",
           description: "Include pages flagged as sensitive/adult (default false)",
@@ -112,33 +127,33 @@ async function searchHistory(env: Env, userId: string, args: Record<string, unkn
   // An ISO date means the whole day — make the upper bound inclusive.
   const to = parseDay(args.to);
   const toEnd = to !== null ? to + DAY_MS : null;
+  const rawSite = typeof args.site === "string" ? args.site : "";
+  const site = normalizeSiteFilter(rawSite);
+  if (rawSite.trim() && !site) return err("Provide a valid site hostname or URL.");
+  const sort = args.sort === undefined ? "relevance" : parseSearchSort(args.sort);
+  if (!sort) return err("Sort must be relevance, newest, or oldest.");
+  if (from !== null && toEnd !== null && from >= toEnd)
+    return err("The from date must be before the to date.");
   const sens = args.include_sensitive === true ? "" : "AND p.sensitive = 0";
   const active = (await hasLegacyPageColumns(env)) ? "AND p.deleted = 0" : "";
 
   const conds = [`pages_fts MATCH ?1`, `p.user_id = ?2`];
   const binds: unknown[] = [match, userId];
-  if (from !== null) {
-    binds.push(from);
-    conds.push(`p.visited_at >= ?${binds.length}`);
-  }
-  if (toEnd !== null) {
-    binds.push(toEnd);
-    conds.push(`p.visited_at < ?${binds.length}`);
-  }
+  addSearchFilters(conds, binds, { from, to: toEnd, site });
   binds.push(limit);
   const { results } = await env.DB.prepare(
     `SELECT p.*, snippet(pages_fts, 1, '', '', '…', 16) AS snippet, bm25(pages_fts, 5.0, 1.0) AS rank
      FROM pages_fts
      JOIN pages p ON p.id = pages_fts.page_id AND p.user_id = pages_fts.user_id
      WHERE ${conds.join(" AND ")} ${sens} ${active}
-     ORDER BY rank LIMIT ?${binds.length}`,
+     ORDER BY ${searchOrder(sort)} LIMIT ?${binds.length}`,
   )
     .bind(...binds)
     .all<PageRow & { snippet: string; rank: number }>();
 
   if (!results.length) return ok(`No pages matched "${args.query}".`);
   const body = results.map((r) => fmtPage(rowToPage(r), r.snippet || undefined)).join("\n\n");
-  return ok(`${results.length} page(s) matched "${args.query}" (best match first):\n\n${body}`);
+  return ok(`${results.length} page(s) matched "${args.query}" (${sort} first):\n\n${body}`);
 }
 
 async function recentHistory(env: Env, userId: string, args: Record<string, unknown>): Promise<ToolResult> {

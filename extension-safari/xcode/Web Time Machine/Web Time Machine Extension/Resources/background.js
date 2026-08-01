@@ -111,6 +111,10 @@
       const p = new URLSearchParams({ q: query });
       if (opts.limit != null) p.set("limit", String(opts.limit));
       if (opts.offset != null) p.set("offset", String(opts.offset));
+      if (opts.from != null) p.set("from", String(opts.from));
+      if (opts.to != null) p.set("to", String(opts.to));
+      if (opts.site?.trim()) p.set("site", opts.site.trim());
+      if (opts.sort) p.set("sort", opts.sort);
       return this.req("GET", `${Routes.search}?${p.toString()}`);
     }
     recent(opts = {}) {

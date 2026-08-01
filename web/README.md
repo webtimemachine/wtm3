@@ -1,8 +1,9 @@
 # Web Time Machine web dashboard
 
-React/Vite SPA for the captured-history timeline, FTS5 search, readable-text
-viewer, device settings, retention, sensitive-page filtering, and the complete
-account lifecycle:
+React/Vite SPA for the captured-history timeline, FTS5 search with quick time
+ranges, custom dates, site filtering, and relevance/newest/oldest sorting;
+readable-text viewing; device settings; retention; sensitive-page filtering;
+and the complete account lifecycle:
 
 - create account and log in
 - request and consume a 30-minute password-reset link

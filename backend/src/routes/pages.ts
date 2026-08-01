@@ -25,7 +25,14 @@ import {
   type PageRow,
 } from "../db";
 import type { Env, Vars } from "../env";
-import { toMatchQuery } from "../search";
+import {
+  addSearchFilters,
+  normalizeSiteFilter,
+  parseSearchBoundary,
+  parseSearchSort,
+  searchOrder,
+  toMatchQuery,
+} from "../search";
 import { isKnownAdultDomain, summarizePages } from "../summary";
 
 type App = Hono<{ Bindings: Env; Variables: Vars }>;
@@ -345,6 +352,29 @@ export function registerPageRoutes(app: App): void {
       0,
       Number.parseInt(c.req.query("offset") || "0", 10) || 0,
     );
+    const rawFrom = c.req.query("from");
+    const rawTo = c.req.query("to");
+    const rawSite = c.req.query("site");
+    const rawSort = c.req.query("sort") || "relevance";
+    const from = parseSearchBoundary(rawFrom);
+    const to = parseSearchBoundary(rawTo);
+    const site = normalizeSiteFilter(rawSite);
+    const sort = parseSearchSort(rawSort);
+    if (
+      (rawFrom?.trim() && from === null) ||
+      (rawTo?.trim() && to === null) ||
+      (rawSite?.trim() && site === null) ||
+      !sort ||
+      (from !== null && to !== null && from >= to)
+    ) {
+      return c.json(
+        {
+          error: "invalid_search_filter",
+          message: "Check the time range, site, and sort filters.",
+        },
+        400,
+      );
+    }
     const match = toMatchQuery(query);
     if (!match) {
       const response: SearchResponse = { query, hits: [], total: 0 };
@@ -356,16 +386,21 @@ export function registerPageRoutes(app: App): void {
     const active = (await hasLegacyPageColumns(c.env))
       ? "AND p.deleted=0"
       : "";
+    const conditions = ["pages_fts MATCH ?1", "p.user_id=?2"];
+    const bindings: unknown[] = [match, userId];
+    addSearchFilters(conditions, bindings, { from, to, site });
+    const where = conditions.join(" AND ");
     const { results } = await c.env.DB.prepare(
       `SELECT p.*,
               snippet(pages_fts,1,'<mark>','</mark>','…',16) AS snippet,
               bm25(pages_fts,5.0,1.0) AS rank
        FROM pages_fts
        JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id
-       WHERE pages_fts MATCH ?1 AND p.user_id=?2 ${sensitive} ${active}
-       ORDER BY rank LIMIT ?3 OFFSET ?4`,
+       WHERE ${where} ${sensitive} ${active}
+       ORDER BY ${searchOrder(sort)}
+       LIMIT ?${bindings.length + 1} OFFSET ?${bindings.length + 2}`,
     )
-      .bind(match, userId, limit, offset)
+      .bind(...bindings, limit, offset)
       .all<PageRow & { snippet: string; rank: number }>();
     const total =
       (
@@ -373,9 +408,9 @@ export function registerPageRoutes(app: App): void {
           `SELECT count(*) AS n
            FROM pages_fts
            JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id
-           WHERE pages_fts MATCH ?1 AND p.user_id=?2 ${sensitive} ${active}`,
+           WHERE ${where} ${sensitive} ${active}`,
         )
-          .bind(match, userId)
+          .bind(...bindings)
           .first<{ n: number }>()
       )?.n ?? results.length;
     const hits: SearchHit[] = results.map((row) => ({

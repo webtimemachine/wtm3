@@ -139,6 +139,20 @@ export interface SearchHit extends PageRecord {
   rank: number;
 }
 
+export type SearchSort = "relevance" | "newest" | "oldest";
+
+export interface SearchOptions {
+  limit?: number;
+  offset?: number;
+  /** Inclusive visited-at lower bound, as epoch milliseconds. */
+  from?: number;
+  /** Exclusive visited-at upper bound, as epoch milliseconds. */
+  to?: number;
+  /** Hostname or URL. The backend includes matching subdomains. */
+  site?: string;
+  sort?: SearchSort;
+}
+
 // ---------------------------------------------------------------------------
 // Sync
 // ---------------------------------------------------------------------------

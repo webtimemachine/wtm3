@@ -116,6 +116,10 @@
       const p = new URLSearchParams({ q: query });
       if (opts.limit != null) p.set("limit", String(opts.limit));
       if (opts.offset != null) p.set("offset", String(opts.offset));
+      if (opts.from != null) p.set("from", String(opts.from));
+      if (opts.to != null) p.set("to", String(opts.to));
+      if (opts.site?.trim()) p.set("site", opts.site.trim());
+      if (opts.sort) p.set("sort", opts.sort);
       return this.req("GET", `${Routes.search}?${p.toString()}`);
     }
     recent(opts = {}) {
@@ -159,6 +163,43 @@
     const d = Math.round(hr / 24);
     if (d < 30) return `${d}d ago`;
     return new Date(ms).toLocaleDateString();
+  }
+
+  // ../shared/src/search.ts
+  var DAY_MS = 864e5;
+  var SEARCH_TIME_CHOICES = [
+    { value: "any", label: "Any time" },
+    { value: "today", label: "Today" },
+    { value: "7d", label: "7 days" },
+    { value: "30d", label: "30 days" },
+    { value: "1y", label: "1 year" },
+    { value: "custom", label: "Custom" }
+  ];
+  function localDateStart(value, addDays = 0) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return void 0;
+    const date = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]) + addDays
+    );
+    return Number.isFinite(date.getTime()) ? date.getTime() : void 0;
+  }
+  function searchRangeForPreset(preset, customFrom = "", customTo = "", now = Date.now()) {
+    if (preset === "custom") {
+      return {
+        from: localDateStart(customFrom),
+        to: localDateStart(customTo, 1)
+      };
+    }
+    if (preset === "any") return {};
+    if (preset === "today") {
+      const start = new Date(now);
+      start.setHours(0, 0, 0, 0);
+      return { from: start.getTime() };
+    }
+    const days = preset === "7d" ? 7 : preset === "30d" ? 30 : 365;
+    return { from: now - days * DAY_MS };
   }
 
   // ../extension-chrome/src/config.ts
@@ -776,13 +817,69 @@
     void chrome.runtime.sendMessage({ type: "flushNow" }).catch(() => null).then(() => renderStatus(status));
     app.append(await buildSettings(st));
     const search = h("input", { type: "search", placeholder: "Search your history\u2026" });
-    app.append(h("div", { class: "section" }, [search]));
+    const timeSelect = h("select", { "aria-label": "Time range" });
+    for (const choice of SEARCH_TIME_CHOICES) {
+      timeSelect.append(h("option", { value: choice.value }, [choice.label]));
+    }
+    const siteInput = h("input", {
+      type: "search",
+      placeholder: "Site, e.g. nytimes.com",
+      "aria-label": "Site"
+    });
+    const sortSelect = h("select", { "aria-label": "Sort" });
+    for (const [value, label] of [
+      ["relevance", "Relevance"],
+      ["newest", "Newest first"],
+      ["oldest", "Oldest first"]
+    ]) {
+      sortSelect.append(h("option", { value }, [label]));
+    }
+    const fromInput = h("input", { type: "date", "aria-label": "From date" });
+    const toInput = h("input", { type: "date", "aria-label": "Through date" });
+    const customDates = h("div", { class: "search-custom-dates" }, [
+      h("label", {}, ["From", fromInput]),
+      h("label", {}, ["Through", toInput])
+    ]);
+    customDates.hidden = true;
+    app.append(
+      h("div", { class: "section search-section" }, [
+        search,
+        h("div", { class: "search-filter-grid" }, [
+          h("label", {}, ["When", timeSelect]),
+          h("label", {}, ["Sort", sortSelect]),
+          h("label", { class: "search-site" }, ["Site", siteInput])
+        ]),
+        customDates
+      ])
+    );
     const results = h("div", { class: "results" }, [h("div", { class: "empty" }, ["Loading recent pages\u2026"])]);
     app.append(results);
-    search.addEventListener("input", () => {
-      if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => void runSearch(search.value.trim(), results), SEARCH_DEBOUNCE_MS);
+    const currentSearchOptions = () => ({
+      limit: 30,
+      ...searchRangeForPreset(
+        timeSelect.value,
+        fromInput.value,
+        toInput.value
+      ),
+      site: siteInput.value.trim(),
+      sort: sortSelect.value
     });
+    const scheduleSearch = () => {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(
+        () => void runSearch(search.value.trim(), results, currentSearchOptions()),
+        SEARCH_DEBOUNCE_MS
+      );
+    };
+    search.addEventListener("input", scheduleSearch);
+    siteInput.addEventListener("input", scheduleSearch);
+    sortSelect.addEventListener("change", scheduleSearch);
+    timeSelect.addEventListener("change", () => {
+      customDates.hidden = timeSelect.value !== "custom";
+      scheduleSearch();
+    });
+    fromInput.addEventListener("change", scheduleSearch);
+    toInput.addEventListener("change", scheduleSearch);
     await loadRecent(results);
   }
   async function buildSettings(st) {
@@ -968,10 +1065,16 @@
       );
     }
   }
-  async function runSearch(q, results) {
+  async function runSearch(q, results, options) {
     if (!q) return loadRecent(results);
+    if (options.from !== void 0 && options.to !== void 0 && options.from >= options.to) {
+      results.replaceChildren(
+        h("div", { class: "empty error" }, ["The start date must be before the end date."])
+      );
+      return;
+    }
     try {
-      const res = await (await client()).search(q, { limit: 30 });
+      const res = await (await client()).search(q, options);
       results.replaceChildren();
       if (!res.hits.length) {
         results.append(h("div", { class: "empty" }, [`No matches for \u201C${q}\u201D.`]));

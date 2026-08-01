@@ -9,6 +9,7 @@ import {
 import type {
   PageRecord,
   SearchHit,
+  SearchSort,
   UserInfo,
 } from "@wtm/shared";
 import { WtmApiError } from "@wtm/shared/api";
@@ -17,6 +18,10 @@ import {
   hostname,
   SEARCH_DEBOUNCE_MS,
 } from "@wtm/shared/format";
+import {
+  searchRangeForPreset,
+  type SearchTimePreset,
+} from "@wtm/shared/search";
 import { groupByDay, type HistoryItem } from "../history";
 import {
   clientFor,
@@ -25,6 +30,7 @@ import {
   type Session,
 } from "../session";
 import { SettingsModal } from "./SettingsModal";
+import { SearchFilters } from "./SearchFilters";
 
 export function Dashboard({
   session,
@@ -42,6 +48,11 @@ export function Dashboard({
     [session.baseUrl, session.token],
   );
   const [query, setQuery] = useState("");
+  const [timePreset, setTimePreset] = useState<SearchTimePreset>("any");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [site, setSite] = useState("");
+  const [sort, setSort] = useState<SearchSort>("relevance");
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -53,6 +64,10 @@ export function Dashboard({
   const [showTop, setShowTop] = useState(false);
   const requestId = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const searchRange = useMemo(
+    () => searchRangeForPreset(timePreset, customFrom, customTo),
+    [timePreset, customFrom, customTo],
+  );
 
   const handleError = useCallback(
     (caught: unknown) => {
@@ -94,8 +109,22 @@ export function Dashboard({
       const id = ++requestId.current;
       setLoading(true);
       setError("");
+      if (
+        searchRange.from !== undefined &&
+        searchRange.to !== undefined &&
+        searchRange.from >= searchRange.to
+      ) {
+        setError("The start date must be before the end date.");
+        setLoading(false);
+        return;
+      }
       try {
-        const response = await client.search(value, { limit: 50 });
+        const response = await client.search(value, {
+          limit: 50,
+          ...searchRange,
+          site,
+          sort,
+        });
         if (id !== requestId.current) return;
         setItems(response.hits);
         setTotal(response.total);
@@ -106,7 +135,7 @@ export function Dashboard({
         if (id === requestId.current) setLoading(false);
       }
     },
-    [client, handleError],
+    [client, handleError, searchRange, site, sort],
   );
 
   useEffect(() => {
@@ -211,6 +240,19 @@ export function Dashboard({
             : "Recent"}
         </span>
       </div>
+
+      <SearchFilters
+        timePreset={timePreset}
+        onTimePreset={setTimePreset}
+        site={site}
+        onSite={setSite}
+        sort={sort}
+        onSort={setSort}
+        customFrom={customFrom}
+        onCustomFrom={setCustomFrom}
+        customTo={customTo}
+        onCustomTo={setCustomTo}
+      />
 
       {error && <div className="banner error">{error}</div>}
 

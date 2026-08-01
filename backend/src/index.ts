@@ -54,7 +54,7 @@ export default {
       const session = token
         ? await verifySession(env.DB, token)
         : null;
-      if (session) {
+      if (session?.scope === "full") {
         if (request.method !== "POST")
           return new Response(
             JSON.stringify({

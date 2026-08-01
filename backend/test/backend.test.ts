@@ -6,6 +6,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import { hashOpaqueToken, hashPassword } from "../src/auth";
+import { createPkcePair } from "@wtm/shared/auth";
 import type { Env } from "../src/env";
 
 const origin = "https://api.webtm.io";
@@ -65,6 +66,7 @@ describe("v4 schema", () => {
     const names = tables.results.map((row) => row.name);
     expect(names).toContain("sessions");
     expect(names).toContain("password_reset_tokens");
+    expect(names).toContain("extension_authorizations");
     expect(names).not.toContain("user_seq");
     expect(names).not.toContain("beta_signups");
     expect(names).not.toContain("diagnostic_reports");
@@ -132,11 +134,15 @@ describe("sessions and account lifecycle", () => {
   it("stores only the session hash and revokes an ordinary logout", async () => {
     const tokenHash = await hashOpaqueToken(token);
     const row = await env.DB.prepare(
-      "SELECT token_hash,client FROM sessions WHERE user_id=?1",
+      "SELECT token_hash,client,scope FROM sessions WHERE user_id=?1",
     )
       .bind(userId)
-      .first<{ token_hash: string; client: string }>();
-    expect(row).toEqual({ token_hash: tokenHash, client: "Backend test" });
+      .first<{ token_hash: string; client: string; scope: string }>();
+    expect(row).toEqual({
+      token_hash: tokenHash,
+      client: "Backend test",
+      scope: "full",
+    });
     expect(row?.token_hash).not.toBe(token);
 
     expect(
@@ -234,6 +240,135 @@ describe("sessions and account lifecycle", () => {
         })
       ).status,
     ).toBe(200);
+  });
+});
+
+describe("extension authorization", () => {
+  it("uses web approval to mint a single-use capture token", async () => {
+    const web = await register(
+      `extension-${crypto.randomUUID()}@example.com`,
+    );
+    const pkce = await createPkcePair();
+    const started = await jsonRequest("/auth/extension/start", "POST", {
+      codeChallenge: pkce.challenge,
+      client: "Safari extension",
+    });
+    expect(started.status).toBe(201);
+    const grant = await started.json<{
+      requestId: string;
+      expiresAt: number;
+    }>();
+    expect(grant.requestId).toMatch(/^connect_/);
+    expect(grant.expiresAt).toBeGreaterThan(Date.now());
+
+    const before = await jsonRequest("/auth/extension/request", "POST", {
+      requestId: grant.requestId,
+    });
+    expect(await before.json()).toMatchObject({
+      client: "Safari extension",
+      status: "pending",
+    });
+    const pending = await jsonRequest(
+      "/auth/extension/token",
+      "POST",
+      {
+        requestId: grant.requestId,
+        codeVerifier: pkce.verifier,
+      },
+    );
+    expect(await pending.json()).toEqual({ status: "pending" });
+    expect(
+      (
+        await jsonRequest("/auth/extension/approve", "POST", {
+          requestId: grant.requestId,
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await jsonRequest(
+          "/auth/extension/approve",
+          "POST",
+          { requestId: grant.requestId },
+          web.token,
+        )
+      ).status,
+    ).toBe(200);
+
+    const pendingWithWrongVerifier = await jsonRequest(
+      "/auth/extension/token",
+      "POST",
+      {
+        requestId: grant.requestId,
+        codeVerifier: "x".repeat(43),
+      },
+    );
+    expect(pendingWithWrongVerifier.status).toBe(400);
+
+    const exchanged = await jsonRequest(
+      "/auth/extension/token",
+      "POST",
+      {
+        requestId: grant.requestId,
+        codeVerifier: pkce.verifier,
+      },
+    );
+    expect(exchanged.status).toBe(200);
+    const extension = await exchanged.json<{
+      status: string;
+      token: string;
+    }>();
+    expect(extension.status).toBe("connected");
+
+    const tokenHash = await hashOpaqueToken(extension.token);
+    expect(
+      await env.DB.prepare(
+        "SELECT client,scope FROM sessions WHERE token_hash=?1",
+      )
+        .bind(tokenHash)
+        .first(),
+    ).toEqual({ client: "Safari extension", scope: "capture" });
+
+    expect(
+      (
+        await jsonRequest("/auth/extension/token", "POST", {
+          requestId: grant.requestId,
+          codeVerifier: pkce.verifier,
+        })
+      ).status,
+    ).toBe(410);
+    expect(
+      (
+        await jsonRequest(
+          "/nodes",
+          "POST",
+          { id: crypto.randomUUID(), name: "Safari on iPhone", platform: "safari-ios" },
+          extension.token,
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await request("/search?q=private", {
+          headers: { Authorization: `Bearer ${extension.token}` },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await jsonRequest(
+          "/auth/logout-everywhere",
+          "POST",
+          undefined,
+          extension.token,
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await jsonRequest("/auth/logout", "POST", undefined, extension.token)
+      ).status,
+    ).toBe(204);
   });
 });
 

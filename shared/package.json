@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./capture": "./src/capture.ts",
     "./api": "./src/api.ts",
+    "./auth": "./src/auth.ts",
     "./format": "./src/format.ts",
     "./search": "./src/search.ts"
   },

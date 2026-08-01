@@ -55,6 +55,33 @@ export interface AuthResponse {
   user: UserInfo;
 }
 
+export type SessionScope = "full" | "capture";
+
+export interface ExtensionAuthStartRequest {
+  codeChallenge: string;
+  client: string;
+}
+
+export interface ExtensionAuthStartResponse {
+  requestId: string;
+  expiresAt: number;
+}
+
+export interface ExtensionAuthRequestInfo {
+  client: string;
+  expiresAt: number;
+  status: "pending" | "approved";
+}
+
+export interface ExtensionAuthExchangeRequest {
+  requestId: string;
+  codeVerifier: string;
+}
+
+export type ExtensionAuthExchangeResponse =
+  | { status: "pending" }
+  | ({ status: "connected" } & AuthResponse);
+
 export interface PasswordChangeRequest {
   currentPassword: string;
   newPassword: string;
@@ -203,6 +230,10 @@ export const Routes = {
   changePassword: "/auth/password",
   requestPasswordReset: "/auth/password-reset/request",
   confirmPasswordReset: "/auth/password-reset/confirm",
+  extensionAuthStart: "/auth/extension/start",
+  extensionAuthRequest: "/auth/extension/request",
+  extensionAuthApprove: "/auth/extension/approve",
+  extensionAuthToken: "/auth/extension/token",
   account: "/account",
   me: "/auth/me",
   settings: "/settings",

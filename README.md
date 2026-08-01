@@ -45,6 +45,11 @@ supports ordinary logout, log out everywhere, password change, single-use
 30-minute password reset links, and self-service account deletion. Password
 changes, resets, and account deletion also revoke MCP OAuth grants.
 
+Browser extensions connect through a one-time, PKCE-protected approval on the
+website, so credentials are entered only in password-manager-friendly web forms.
+Extensions receive separate capture-scoped tokens that cannot search history,
+read stored pages, or change account settings.
+
 Upgrading from v3 intentionally invalidates the old stateless JWTs, so every
 client signs in once after the v4 rollout.
 

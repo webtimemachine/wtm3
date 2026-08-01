@@ -24,6 +24,7 @@ try {
     "0004_quota.sql",
     "0005_diagnostics.sql",
     "0006_v4_sessions.sql",
+    "0008_extension_authorization.sql",
   ]) {
     await cp(
       join(backendDir, "migrations", name),

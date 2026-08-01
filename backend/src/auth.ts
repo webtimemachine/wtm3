@@ -79,7 +79,7 @@ export async function hashOpaqueToken(token: string): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(token))));
 }
 
-export function randomOpaqueToken(prefix: "wtm" | "reset"): string {
+export function randomOpaqueToken(prefix: "wtm" | "reset" | "connect"): string {
   return `${prefix}_${toB64Url(crypto.getRandomValues(new Uint8Array(SESSION_BYTES)))}`;
 }
 
@@ -89,6 +89,7 @@ export interface NewSession {
   token: string;
   tokenHash: string;
   client: string;
+  scope: "full" | "capture";
   createdAt: number;
   expiresAt: number;
 }
@@ -97,7 +98,11 @@ function normalizeClient(client: unknown): string {
   return typeof client === "string" && client.trim() ? client.trim().slice(0, 128) : "Unknown client";
 }
 
-export async function prepareSession(userId: string, client?: unknown): Promise<NewSession> {
+export async function prepareSession(
+  userId: string,
+  client?: unknown,
+  scope: "full" | "capture" = "full",
+): Promise<NewSession> {
   const token = randomOpaqueToken("wtm");
   const createdAt = Date.now();
   return {
@@ -106,6 +111,7 @@ export async function prepareSession(userId: string, client?: unknown): Promise<
     token,
     tokenHash: await hashOpaqueToken(token),
     client: normalizeClient(client),
+    scope,
     createdAt,
     expiresAt: createdAt + SESSION_TTL_MS,
   };
@@ -114,14 +120,15 @@ export async function prepareSession(userId: string, client?: unknown): Promise<
 export function insertSessionStatement(db: D1Database, session: NewSession): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO sessions (id,user_id,token_hash,client,created_at,last_seen_at,expires_at)
-       VALUES (?1,?2,?3,?4,?5,?5,?6)`,
+      `INSERT INTO sessions (id,user_id,token_hash,client,scope,created_at,last_seen_at,expires_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?6,?7)`,
     )
     .bind(
       session.id,
       session.userId,
       session.tokenHash,
       session.client,
+      session.scope,
       session.createdAt,
       session.expiresAt,
     );
@@ -131,6 +138,7 @@ export interface SessionClaims {
   sessionId: string;
   userId: string;
   email: string;
+  scope: "full" | "capture";
 }
 
 /** Resolve one opaque bearer token and occasionally refresh its activity time. */
@@ -140,15 +148,26 @@ export async function verifySession(db: D1Database, token: string): Promise<Sess
   const tokenHash = await hashOpaqueToken(token);
   const row = await db
     .prepare(
-      `SELECT s.id AS session_id, s.user_id, s.last_seen_at, u.email
+      `SELECT s.id AS session_id, s.user_id, s.last_seen_at, s.scope, u.email
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ?1 AND s.expires_at > ?2`,
     )
     .bind(tokenHash, now)
-    .first<{ session_id: string; user_id: string; last_seen_at: number; email: string }>();
+    .first<{
+      session_id: string;
+      user_id: string;
+      last_seen_at: number;
+      scope: "full" | "capture";
+      email: string;
+    }>();
   if (!row) return null;
   if (now - row.last_seen_at >= LAST_SEEN_WRITE_INTERVAL_MS) {
     await db.prepare("UPDATE sessions SET last_seen_at = ?1 WHERE id = ?2").bind(now, row.session_id).run();
   }
-  return { sessionId: row.session_id, userId: row.user_id, email: row.email };
+  return {
+    sessionId: row.session_id,
+    userId: row.user_id,
+    email: row.email,
+    scope: row.scope,
+  };
 }

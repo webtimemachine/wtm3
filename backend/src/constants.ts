@@ -7,3 +7,4 @@ export const MAX_PAGES_PER_USER = 100_000;
 export const MAX_TEXT_BYTES_PER_USER = 2_000_000_000;
 export const PASSWORD_RESET_TTL_MS = 30 * 60_000;
 export const PASSWORD_RESET_MIN_INTERVAL_MS = 60_000;
+export const EXTENSION_AUTH_TTL_MS = 10 * 60_000;

@@ -10,6 +10,10 @@
     changePassword: "/auth/password",
     requestPasswordReset: "/auth/password-reset/request",
     confirmPasswordReset: "/auth/password-reset/confirm",
+    extensionAuthStart: "/auth/extension/start",
+    extensionAuthRequest: "/auth/extension/request",
+    extensionAuthApprove: "/auth/extension/approve",
+    extensionAuthToken: "/auth/extension/token",
     account: "/account",
     me: "/auth/me",
     settings: "/settings",
@@ -83,6 +87,18 @@
     async confirmPasswordReset(req) {
       await this.req("POST", Routes.confirmPasswordReset, req);
     }
+    startExtensionAuth(req) {
+      return this.req("POST", Routes.extensionAuthStart, req);
+    }
+    extensionAuthRequest(requestId) {
+      return this.req("POST", Routes.extensionAuthRequest, { requestId });
+    }
+    async approveExtensionAuth(requestId) {
+      await this.req("POST", Routes.extensionAuthApprove, { requestId });
+    }
+    exchangeExtensionAuth(req) {
+      return this.req("POST", Routes.extensionAuthToken, req);
+    }
     async deleteAccount(req) {
       await this.req("DELETE", Routes.account, req);
     }
@@ -151,7 +167,8 @@
     captureEnabled: true,
     lastSync: null,
     lastError: null,
-    lastErrorAt: null
+    lastErrorAt: null,
+    pendingConnection: null
   };
 
   // ../node_modules/.pnpm/fflate@0.8.3/node_modules/fflate/esm/browser.js

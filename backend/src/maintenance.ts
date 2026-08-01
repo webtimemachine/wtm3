@@ -44,5 +44,8 @@ export async function purgeExpiredCredentials(env: Env): Promise<void> {
     env.DB.prepare(
       "DELETE FROM password_reset_tokens WHERE expires_at<=?1",
     ).bind(now),
+    env.DB.prepare(
+      "DELETE FROM extension_authorizations WHERE expires_at<=?1",
+    ).bind(now),
   ]);
 }

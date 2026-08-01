@@ -4,18 +4,18 @@
 
 import {
   Routes,
+  type AccountDeleteRequest,
   type AuthResponse,
   type ApiError,
-  type DiagnosticReport,
   type LoginRequest,
   type NodeInfo,
-  type PageRecord,
+  type PasswordChangeRequest,
+  type PasswordResetConfirmRequest,
   type RecentResponse,
   type RegisterNodeRequest,
   type RegisterRequest,
   type SearchResponse,
   type SettingsUpdate,
-  type SyncPullResponse,
   type SyncPushRequest,
   type SyncPushResponse,
   type UserInfo,
@@ -49,14 +49,6 @@ export class WtmClient {
     this.f = opts.fetchImpl ?? fetch.bind(globalThis);
   }
 
-  setToken(token: string | null): void {
-    this.token = token;
-  }
-
-  get hasToken(): boolean {
-    return !!this.token;
-  }
-
   private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
@@ -88,6 +80,24 @@ export class WtmClient {
   login(req: LoginRequest): Promise<AuthResponse> {
     return this.req("POST", Routes.login, req);
   }
+  async logout(): Promise<void> {
+    await this.req("POST", Routes.logout);
+  }
+  async logoutEverywhere(): Promise<void> {
+    await this.req("POST", Routes.logoutEverywhere);
+  }
+  changePassword(req: PasswordChangeRequest): Promise<AuthResponse> {
+    return this.req("POST", Routes.changePassword, req);
+  }
+  async requestPasswordReset(email: string): Promise<void> {
+    await this.req("POST", Routes.requestPasswordReset, { email });
+  }
+  async confirmPasswordReset(req: PasswordResetConfirmRequest): Promise<void> {
+    await this.req("POST", Routes.confirmPasswordReset, req);
+  }
+  async deleteAccount(req: AccountDeleteRequest): Promise<void> {
+    await this.req("DELETE", Routes.account, req);
+  }
   me(): Promise<UserInfo> {
     return this.req("GET", Routes.me);
   }
@@ -110,9 +120,6 @@ export class WtmClient {
   push(req: SyncPushRequest): Promise<SyncPushResponse> {
     return this.req("POST", Routes.syncPush, req);
   }
-  pull(since: number, limit = 500): Promise<SyncPullResponse> {
-    return this.req("GET", `${Routes.syncPull}?since=${since}&limit=${limit}`);
-  }
 
   // --- search & pages ---
   search(query: string, opts: { limit?: number; offset?: number } = {}): Promise<SearchResponse> {
@@ -128,9 +135,6 @@ export class WtmClient {
     const qs = p.toString();
     return this.req("GET", qs ? `${Routes.recent}?${qs}` : Routes.recent);
   }
-  getPage(id: string): Promise<PageRecord> {
-    return this.req("GET", Routes.page(id));
-  }
   async getText(id: string): Promise<string> {
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
@@ -140,10 +144,5 @@ export class WtmClient {
   }
   async deletePage(id: string): Promise<void> {
     await this.req("DELETE", Routes.page(id));
-  }
-
-  // --- diagnostics ---
-  async reportDiagnostics(report: DiagnosticReport): Promise<void> {
-    await this.req("POST", Routes.diagnostics, report);
   }
 }

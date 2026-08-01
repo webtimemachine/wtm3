@@ -1,62 +1,95 @@
-# Web Time Machine — backend (Cloudflare Worker)
+# Web Time Machine backend
 
-Hono Worker on **D1** (metadata + FTS5) + **R2** (full readable text) + **Workers AI**
-(one-line summaries) + a retention **cron**. Auth is email/password (PBKDF2 + JWT).
+Hono Worker using D1 for account/page metadata and FTS5, R2 for readable page
+text, Workers AI for page summaries, Cloudflare Email Service for password
+resets, and KV-backed OAuth for the MCP endpoint.
 
-## Bindings (`wrangler.jsonc`)
+## Bindings
 
-| Binding | Resource | Purpose |
-| ------- | -------- | ------- |
-| `DB`     | D1 `wtm`        | users, nodes, pages, `pages_fts` (FTS5/BM25), per-user change log |
-| `BUCKET` | R2 `wtm-pages`  | full readable text at `text/<userId>/<pageId>` |
-| `AI`     | Workers AI      | `SUMMARY_MODEL` one-line summaries (background, `waitUntil`) |
-| secret `JWT_SECRET` | — | HMAC key for session JWTs |
+| Binding | Purpose |
+| --- | --- |
+| `DB` | Users, opaque sessions, reset tokens, nodes, pages, and FTS5 |
+| `BUCKET` | Readable text at `text/<userId>/<pageId>` |
+| `AI` | Summary and sensitive-content classification |
+| `EMAIL` | Transactional password-reset email |
+| `OAUTH_KV` | MCP OAuth clients, grants, and tokens |
+
+Email Sending must be onboarded for `webtm.io` before production deployment.
+Cloudflare adds the sending-domain SPF, DKIM, DMARC, and `cf-bounce` records.
+The Worker sends as `Web Time Machine <noreply@webtm.io>` with
+`Reply-To: info@webtm.io`. Email Routing alone only supports sends to verified
+destination addresses; password resets require arbitrary-recipient Email
+Sending on a Workers Paid plan.
 
 ## Endpoints
 
-```
-GET  /health
-POST /auth/register        POST /auth/login        GET /auth/me
-POST /nodes                GET  /nodes
-POST /sync/push            GET  /sync/pull?since=<seq>&limit=
-GET  /search?q=&limit=&offset=        (FTS5, BM25, <mark> snippets)
-GET  /pages?limit=&before=<visitedAt> (recent timeline)
-GET  /pages/:id            GET  /pages/:id/text     DELETE /pages/:id
+```text
+GET    /health
+POST   /auth/register
+POST   /auth/login
+GET    /auth/me
+POST   /auth/logout
+POST   /auth/logout-everywhere
+POST   /auth/password
+POST   /auth/password-reset/request
+POST   /auth/password-reset/confirm
+DELETE /account
+
+PATCH  /settings
+POST   /nodes
+GET    /nodes
+PATCH  /nodes/:id
+POST   /sync/push
+GET    /search?q=&limit=&offset=
+GET    /pages?limit=&before=<visitedAt>
+GET    /pages/:id
+GET    /pages/:id/text
+DELETE /pages/:id
+POST   /mcp
 ```
 
-Sync model: every mutation (insert / summary / delete-tombstone) gets a unique
-per-user `seq`; clients `pull` everything with `seq > cursor`, so new pages,
-generated summaries, and deletions all converge across devices.
+There is deliberately no `/sync/pull`, page mutation cursor, tombstone, public
+beta-signup endpoint, or diagnostic-report endpoint in v4.
 
-## Local dev
+## Local development
 
 ```bash
-cp .dev.vars.example .dev.vars                 # sets a dev JWT_SECRET
-pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --local
-pnpm --filter @wtm/backend exec wrangler dev -c wrangler.dev.jsonc   # D1+R2 local, no AI/remote
+pnpm --filter @wtm/backend migrate:local
+pnpm --filter @wtm/backend dev -c wrangler.dev.jsonc
 ```
 
-## Deploy (webtimemachine.io account)
-
-Credentials come from `/Users/posix4e/src/.env` (`CF_API_TOKEN`, `CF_ACCOUNT_ID`):
+The development config simulates email locally and omits Workers AI. Run the
+Worker-runtime integration suite with:
 
 ```bash
-set -a; . /Users/posix4e/src/.env; set +a
-export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_ID"
-
-# one-time: R2 must be enabled on the account (dashboard), then:
-pnpm --filter @wtm/backend exec wrangler r2 bucket create wtm-pages
-pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --remote   # already applied
-pnpm --filter @wtm/backend exec wrangler deploy                            # -> api.webtm.io (custom domain) + workers.dev
-echo "<strong-secret>" | pnpm --filter @wtm/backend exec wrangler secret put JWT_SECRET
+pnpm --filter @wtm/backend test
 ```
 
-Custom domain `api.webtm.io` is wired via `routes` in `wrangler.jsonc`; attaching it
-needs the token to have **Zone:DNS:Edit**.
+The suite applies the real D1 migrations inside workerd and exercises account
+sessions, reset-token consumption, hard page deletion, R2, and the temporary
+legacy schema compatibility needed during rollout.
 
-## State
+## Safe v4 production rollout
 
-- D1 `wtm` (`0e4724c9-5630-40b5-957d-6547cc14d649`) created + migrated on account
-  `b732618f85b1356a957deddd468c4f58`.
-- `workers.dev` subdomain `webtimemachine` registered.
-- Pending: enable **R2**; grant **DNS edit** on the token.
+Do not apply all migrations before the compatible Worker is live.
+
+1. Onboard `webtm.io` in Cloudflare Email Sending.
+2. Apply only additive migration `0006_v4_sessions.sql`:
+   `pnpm --filter @wtm/backend migrate:v4:additive`.
+3. Deploy the v4 backend Worker. It accepts both the legacy and trimmed page
+   schemas.
+4. Verify `/health`, registration/login, a page push, search, password-reset
+   delivery, and MCP OAuth.
+5. Apply destructive migration `0007_v4_cleanup.sql`. This permanently deletes
+   beta signups, diagnostics, tombstones, sequence infrastructure, and retired
+   page columns.
+6. Deploy the v4 web dashboard and browser extensions. Existing v3 JWTs will
+   receive `401` and prompt one intentional re-login.
+
+After the additive phase and Worker deployment, the normal migration command
+applies only destructive migration 0007:
+
+```bash
+pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --remote
+pnpm --filter @wtm/backend deploy
+```

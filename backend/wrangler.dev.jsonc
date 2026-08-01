@@ -1,10 +1,11 @@
 // Local-dev-only config: no AI binding (so wrangler doesn't require a remote
 // proxy / workers.dev subdomain) and no cron. D1 + R2 run locally via Miniflare.
+// Email sending is simulated: messages are logged and saved locally.
 // Production deploys use wrangler.jsonc.
 {
   "name": "wtm-backend-dev",
   "main": "src/index.ts",
-  "compatibility_date": "2025-06-01",
+  "compatibility_date": "2026-07-23",
   "d1_databases": [
     {
       "binding": "DB",
@@ -15,6 +16,7 @@
   ],
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "611be2a3c8cf4b48a1eb9e97329bd090" }],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "wtm-pages" }],
+  "send_email": [{ "name": "EMAIL" }],
   "vars": {
     "SUMMARY_MODEL": "@cf/qwen/qwen3-30b-a3b-fp8",
     "DEFAULT_RETENTION_DAYS": "90"

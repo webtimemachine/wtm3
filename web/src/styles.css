@@ -72,8 +72,12 @@ button:disabled { opacity: 0.5; cursor: default; }
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 .card-title { margin: 0 0 4px; font-weight: 600; }
-.beta-link { display: inline-block; margin-top: 16px; color: var(--accent); text-decoration: none; font-size: 14px; }
-.beta-link:hover { text-decoration: underline; }
+.card-copy { color: var(--muted); font-size: 13px; margin: 6px 0 2px; }
+.text-button {
+  display: block; margin: 14px auto 0; padding: 2px 4px;
+  background: none; color: var(--accent); font-size: 13px; font-weight: 600;
+}
+.success { color: var(--accent); margin-top: 12px; }
 
 .footer { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
 .footer a { color: var(--muted); text-decoration: none; }
@@ -164,3 +168,8 @@ header .email { color: var(--muted); font-size: 13px; }
 .device-row input { flex: 1; min-width: 0; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg2, #0e1426); color: var(--fg); }
 .device-row .platform { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .saved { color: var(--accent); margin-top: 12px; font-size: 13px; }
+.security-grid { display: grid; gap: 8px; margin-top: 10px; }
+.security-grid .btn, .security-grid button { justify-self: start; }
+button.compact { margin-top: 10px; padding: 8px 12px; }
+.danger-zone { border-color: rgba(248, 113, 113, .35); }
+button.danger-button { color: var(--danger); border-color: rgba(248, 113, 113, .45); }

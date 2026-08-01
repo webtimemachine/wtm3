@@ -5,8 +5,12 @@ export { DEFAULT_BACKEND };
 
 // Injected at build time via esbuild `define`.
 declare const __WTM_PLATFORM__: string | undefined;
-export const PLATFORM: Platform =
+const injectedPlatform =
   typeof __WTM_PLATFORM__ !== "undefined" ? __WTM_PLATFORM__ : "chrome";
+export const PLATFORM: Platform =
+  injectedPlatform === "firefox-android" || injectedPlatform === "safari-ios"
+    ? injectedPlatform
+    : "chrome";
 
 export interface ExtState {
   baseUrl: string;
@@ -20,8 +24,6 @@ export interface ExtState {
   lastError: string | null;
   /** When lastError was recorded; the popup stops showing errors after a TTL. */
   lastErrorAt: number | null;
-  /** Rate limit for the automatic capture-paused diagnostic report. */
-  lastAutoReportAt: number | null;
 }
 
 /** Key identifying which account a registered deviceId belongs to. */
@@ -39,5 +41,4 @@ export const DEFAULT_STATE: ExtState = {
   lastSync: null,
   lastError: null,
   lastErrorAt: null,
-  lastAutoReportAt: null,
 };

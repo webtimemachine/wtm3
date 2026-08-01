@@ -1,32 +1,40 @@
-# Web Time Machine — web dashboard
+# Web Time Machine web dashboard
 
-Vite + React SPA: log in, browse a **timeline** of captured pages (`/pages`),
-**full-text search** the content (`/search`, BM25 + highlighted snippets), read a
-page's **AI summary** and full text, and **delete** (propagates to all devices).
-Talks to the backend through `@wtm/shared` (`WtmClient`).
+React/Vite SPA for the captured-history timeline, FTS5 search, readable-text
+viewer, device settings, retention, sensitive-page filtering, and the complete
+account lifecycle:
+
+- create account and log in
+- request and consume a 30-minute password-reset link
+- change password
+- ordinary logout and log out everywhere
+- permanently delete the account and its history
+
+The app uses `@wtm/shared` for the API contract and client.
 
 ## Develop
 
 ```bash
-pnpm --filter @wtm/web dev        # Vite dev server
+pnpm --filter @wtm/web dev
+pnpm --filter @wtm/web typecheck
+pnpm --filter @wtm/web build
 ```
 
-Set the backend URL on the login screen (default `https://api.webtm.io`; use your
-`wtm-backend.<subdomain>.workers.dev` or `http://localhost:8787` while developing).
+The login screen accepts a backend URL for local development; production
+defaults to `https://api.webtm.io`.
 
-## Build & deploy (Cloudflare Workers static assets)
+## Deployments
 
-```bash
-pnpm --filter @wtm/web build      # tsc --noEmit && vite build -> dist/
-set -a; . /Users/posix4e/src/.env; set +a
-export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_ID"
-pnpm --filter @wtm/web exec wrangler deploy   # serves dist/ as an SPA at webtm.io
-```
+`wrangler.jsonc` serves `dist/` with SPA fallback:
 
-`wrangler.jsonc` serves `dist/` with SPA fallback and attaches custom domains
-`webtm.io` + `www.webtm.io` (needs **Zone:DNS:Edit** on the token).
+- production: `webtm.io` and `www.webtm.io`
+- preview: `beta.webtm.io`
 
-## Security note
+The pull-request preview workflow also stages a Chrome zip and, when AMO
+credentials are available, a signed Firefox XPI under `/downloads/`. The
+preview page has no public beta-signup form.
 
-FTS snippets are escaped in `snippetHtml()` before rendering — only the server's
-`<mark>` highlight tags survive, so captured page text can't inject HTML.
+## Rendering safety
+
+FTS snippets pass through `snippetHtml()` before React renders them. Captured
+text is escaped, and only the server-provided `<mark>` highlight tags survive.

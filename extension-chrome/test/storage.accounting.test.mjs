@@ -17,11 +17,13 @@ test("safari-ios: budget honored under UTF-16 accounting", async () => {
     await storage.enqueue([{ ...page(i), text: randomText(8_000) }]); // incompressible
   }
   assert.equal(fake.usage() <= 500_000, true);
-  const diags = await storage.getStorageDiagnostics();
-  assert.equal(diags.accountingMode, "utf16");
   // No brim escapes needed: correct accounting means we trimmed BEFORE the
   // platform ever rejected a write.
-  assert.equal(diags.brimEscapes, 0, "correct accounting avoids quota errors entirely");
+  assert.equal(
+    fake.opLog.filter(([op, key]) => op === "remove" && key === "wtm:queue").length,
+    0,
+    "correct accounting avoids quota recovery entirely",
+  );
   assert.ok((await storage.getQueueCount()) > 5, "retains a meaningful backlog");
 });
 
@@ -38,5 +40,4 @@ test("chrome: UTF-8 accounting, no page cap", async () => {
   const storage = await loadBundle("storage", "chrome", makeFakeChrome(fake));
   await storage.enqueue([{ ...page(1), text: "x".repeat(200_000) }]);
   assert.equal((await storage.getQueue())[0].text.length, 200_000);
-  assert.equal((await storage.getStorageDiagnostics()).accountingMode, "utf8");
 });

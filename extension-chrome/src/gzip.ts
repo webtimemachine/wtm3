@@ -1,6 +1,6 @@
 // Deterministic gzip for storage payloads. fflate is bundled so every
 // platform takes the same code path — CompressionStream is NOT available in
-// the iOS Safari extension context (discovered via field diagnostics: queues
+// the iOS Safari extension context (observed in production: queues
 // were silently shipping uncompressed there, 2x over budget), and a
 // feature-detected fallback means different contexts can disagree about the
 // stored format. No chrome APIs here; trivially unit-testable.

@@ -1,10 +1,10 @@
-import { SignJWT, jwtVerify } from "jose";
-
 // Cloudflare Workers' WebCrypto caps PBKDF2 at 100,000 iterations.
 const PBKDF2_ITERATIONS = 100_000;
 const KEY_BITS = 256;
 const SALT_BYTES = 16;
-const TOKEN_TTL = "90d";
+const SESSION_BYTES = 32;
+const SESSION_TTL_MS = 90 * 86_400_000;
+const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60_000;
 
 const enc = new TextEncoder();
 
@@ -66,26 +66,89 @@ export async function verifyPassword(
   return timingSafeEqual(toB64(bits), stored.hash);
 }
 
-export interface TokenClaims {
+function toB64Url(bytes: Uint8Array): string {
+  return toB64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function toHex(bytes: Uint8Array): string {
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Hash bearer/reset tokens before persistence so a D1 leak cannot reveal them. */
+export async function hashOpaqueToken(token: string): Promise<string> {
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(token))));
+}
+
+export function randomOpaqueToken(prefix: "wtm" | "reset"): string {
+  return `${prefix}_${toB64Url(crypto.getRandomValues(new Uint8Array(SESSION_BYTES)))}`;
+}
+
+export interface NewSession {
+  id: string;
+  userId: string;
+  token: string;
+  tokenHash: string;
+  client: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+function normalizeClient(client: unknown): string {
+  return typeof client === "string" && client.trim() ? client.trim().slice(0, 128) : "Unknown client";
+}
+
+export async function prepareSession(userId: string, client?: unknown): Promise<NewSession> {
+  const token = randomOpaqueToken("wtm");
+  const createdAt = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    userId,
+    token,
+    tokenHash: await hashOpaqueToken(token),
+    client: normalizeClient(client),
+    createdAt,
+    expiresAt: createdAt + SESSION_TTL_MS,
+  };
+}
+
+export function insertSessionStatement(db: D1Database, session: NewSession): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO sessions (id,user_id,token_hash,client,created_at,last_seen_at,expires_at)
+       VALUES (?1,?2,?3,?4,?5,?5,?6)`,
+    )
+    .bind(
+      session.id,
+      session.userId,
+      session.tokenHash,
+      session.client,
+      session.createdAt,
+      session.expiresAt,
+    );
+}
+
+export interface SessionClaims {
+  sessionId: string;
   userId: string;
   email: string;
 }
 
-export async function signToken(secret: string, claims: TokenClaims): Promise<string> {
-  return await new SignJWT({ email: claims.email })
-    .setProtectedHeader({ alg: "HS256" })
-    .setSubject(claims.userId)
-    .setIssuedAt()
-    .setExpirationTime(TOKEN_TTL)
-    .sign(enc.encode(secret));
-}
-
-export async function verifyToken(secret: string, token: string): Promise<TokenClaims | null> {
-  try {
-    const { payload } = await jwtVerify(token, enc.encode(secret));
-    if (!payload.sub) return null;
-    return { userId: payload.sub, email: String(payload.email ?? "") };
-  } catch {
-    return null;
+/** Resolve one opaque bearer token and occasionally refresh its activity time. */
+export async function verifySession(db: D1Database, token: string): Promise<SessionClaims | null> {
+  if (!token.startsWith("wtm_")) return null;
+  const now = Date.now();
+  const tokenHash = await hashOpaqueToken(token);
+  const row = await db
+    .prepare(
+      `SELECT s.id AS session_id, s.user_id, s.last_seen_at, u.email
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ?1 AND s.expires_at > ?2`,
+    )
+    .bind(tokenHash, now)
+    .first<{ session_id: string; user_id: string; last_seen_at: number; email: string }>();
+  if (!row) return null;
+  if (now - row.last_seen_at >= LAST_SEEN_WRITE_INTERVAL_MS) {
+    await db.prepare("UPDATE sessions SET last_seen_at = ?1 WHERE id = ?2").bind(now, row.session_id).run();
   }
+  return { sessionId: row.session_id, userId: row.user_id, email: row.email };
 }

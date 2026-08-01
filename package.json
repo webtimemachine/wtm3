@@ -1,8 +1,8 @@
 {
   "name": "webtimemachine",
   "private": true,
-  "version": "3.2.0",
-  "description": "Web Time Machine v3 — passively record, sync, search, and summarize your browsing history across devices via one Cloudflare-native backend.",
+  "version": "4.0.0",
+  "description": "Web Time Machine v4 — passively capture, sync, search, summarize, and recall your browsing history across devices.",
   "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=20"
@@ -15,7 +15,8 @@
     "dev:web": "pnpm --filter @wtm/web dev",
     "build:chrome": "pnpm --filter @wtm/extension-chrome build",
     "build:firefox": "pnpm --filter @wtm/extension-firefox build",
-    "package:extensions": "pnpm --filter @wtm/extension-chrome package && pnpm --filter @wtm/extension-firefox package"
+    "package:extensions": "pnpm --filter @wtm/extension-chrome package && pnpm --filter @wtm/extension-firefox package",
+    "sync:skills": "node scripts/sync-recall-skills.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

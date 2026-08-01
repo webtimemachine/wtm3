@@ -10,7 +10,7 @@ function happyRoutes(pushed) {
     "POST /nodes": (call) => ({ id: call.body.id, name: call.body.name, platform: call.body.platform }),
     "POST /sync/push": (call) => {
       pushed.push(call.body.pages.map((p) => p.id));
-      return { accepted: call.body.pages.length, deleted: 0, seq: 1 };
+      return { accepted: call.body.pages.length };
     },
   };
 }

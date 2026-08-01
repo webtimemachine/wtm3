@@ -13,6 +13,8 @@
     "verbatimModuleSyntax": false,
     "declaration": true,
     "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true
   }

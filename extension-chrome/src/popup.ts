@@ -7,7 +7,7 @@ import {
   type SearchHit,
 } from "@wtm/shared";
 import { chooseSubline, SEARCH_DEBOUNCE_MS, snippetHtml, timeAgo } from "@wtm/shared/format";
-import { DEFAULT_BACKEND, type ExtState } from "./config";
+import { DEFAULT_BACKEND, PLATFORM, type ExtState } from "./config";
 import { getQueueCount, getState } from "./storage";
 
 const app = document.getElementById("app") as HTMLDivElement;
@@ -94,7 +94,15 @@ async function renderAuth(errorMsg?: string): Promise<void> {
     loginBtn.disabled = registerBtn.disabled = true;
     try {
       const c = new WtmClient({ baseUrl });
-      const res = register ? await c.register({ email, password }) : await c.login({ email, password });
+      const clientName =
+        PLATFORM === "safari-ios"
+          ? "Safari extension"
+          : PLATFORM === "firefox-android"
+            ? "Firefox extension"
+            : "Chrome extension";
+      const res = register
+        ? await c.register({ email, password, client: clientName })
+        : await c.login({ email, password, client: clientName });
       // deviceId/deviceOwner reconciliation happens in the background's flush
       // (it regenerates the node id when the account or backend changed).
       await mutate(
@@ -167,6 +175,12 @@ async function renderApp(): Promise<void> {
   });
   const logout = h("button", { class: "link" }, ["Log out"]);
   logout.addEventListener("click", async () => {
+    try {
+      await (await client()).logout();
+    } catch {
+      // Local logout still succeeds while offline; the server session expires
+      // or can be revoked later with Log out everywhere.
+    }
     try {
       // Keep deviceId + deviceOwner: logging back into the same account should
       // reuse this device's node instead of registering a duplicate.
@@ -315,27 +329,8 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
     );
   }
 
-  // Sync troubleshooting. Both actions run IN THE BACKGROUND worker (the
-  // single storage writer): "Report" builds + sends a diagnostic snapshot
-  // from live state; "Clear" auto-reports the stuck state first (evidence
-  // before destruction), then clears the local queue.
-  const reportMsg = h("span", { class: "hint" }, []);
-  const reportBtn = h("button", { class: "secondary tiny" }, ["Report sync issue"]) as HTMLButtonElement;
+  const queueMsg = h("span", { class: "hint" }, []);
   const clearBtn = h("button", { class: "secondary tiny" }, ["Clear stuck queue"]) as HTMLButtonElement;
-
-  reportBtn.addEventListener("click", async () => {
-    reportBtn.disabled = true;
-    reportMsg.textContent = "Sending…";
-    try {
-      const resp = await sendBg({ type: "reportDiagnostics" });
-      if (!resp?.ok) throw new Error(resp?.error ?? "failed");
-      reportMsg.textContent = "Sent — thanks, we'll take a look.";
-    } catch {
-      reportMsg.textContent = "Couldn't send (offline?)";
-    } finally {
-      reportBtn.disabled = false;
-    }
-  });
 
   clearBtn.addEventListener("click", async () => {
     const queued = await getQueueCount();
@@ -343,13 +338,13 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
       return;
     }
     clearBtn.disabled = true;
-    reportMsg.textContent = "";
+    queueMsg.textContent = "";
     try {
       const resp = await sendBg({ type: "clearQueue" });
       if (!resp?.ok) throw new Error(resp?.error ?? "failed");
-      reportMsg.textContent = "Queue cleared.";
+      queueMsg.textContent = "Queue cleared.";
     } catch {
-      reportMsg.textContent = "Couldn't clear the queue.";
+      queueMsg.textContent = "Couldn't clear the queue.";
     } finally {
       clearBtn.disabled = false;
     }
@@ -358,15 +353,39 @@ async function buildSettings(st: Awaited<ReturnType<typeof getState>>): Promise<
   children.push(
     h("div", { class: "field" }, [
       h("label", {}, ["Sync stuck?"]),
-      h("div", { class: "row" }, [reportBtn, clearBtn]),
-      reportMsg,
+      h("div", { class: "row" }, [clearBtn, queueMsg]),
+    ]),
+  );
+
+  const everywhereBtn = h("button", { class: "secondary tiny" }, [
+    "Log out everywhere",
+  ]) as HTMLButtonElement;
+  const everywhereMsg = h("span", { class: "hint" }, []);
+  everywhereBtn.addEventListener("click", async () => {
+    if (!confirm("Log out every Web Time Machine session and connected AI client?")) return;
+    everywhereBtn.disabled = true;
+    everywhereMsg.textContent = "";
+    try {
+      await (await client()).logoutEverywhere();
+      await mutate({ token: null, user: null });
+      await renderAuth();
+    } catch (e) {
+      everywhereMsg.textContent =
+        e instanceof WtmApiError ? e.message : "Could not log out everywhere.";
+      everywhereBtn.disabled = false;
+    }
+  });
+  children.push(
+    h("div", { class: "field" }, [
+      h("label", {}, ["Account security"]),
+      h("div", { class: "row" }, [everywhereBtn, everywhereMsg]),
     ]),
   );
 
   return h("details", { class: "section settings" }, children);
 }
 
-function renderHit(p: PageRecord | SearchHit, results: HTMLElement): HTMLElement {
+function renderHit(p: PageRecord | SearchHit): HTMLElement {
   // Shared snippet→summary→pending precedence (same decision as the web app).
   const chosen = chooseSubline({ ...(("snippet" in p) && { snippet: p.snippet }), summary: p.summary, summaryStatus: p.summaryStatus });
   const sub =
@@ -404,6 +423,13 @@ function renderHit(p: PageRecord | SearchHit, results: HTMLElement): HTMLElement
   return row;
 }
 
+async function requireRelogin(error: unknown): Promise<boolean> {
+  if (!(error instanceof WtmApiError) || error.status !== 401) return false;
+  await mutate({ token: null, user: null });
+  await renderAuth("Your session ended. Log in once to continue.");
+  return true;
+}
+
 async function loadRecent(results: HTMLElement): Promise<void> {
   try {
     const { pages } = await (await client()).recent({ limit: 30 });
@@ -412,8 +438,9 @@ async function loadRecent(results: HTMLElement): Promise<void> {
       results.append(h("div", { class: "empty" }, ["No pages captured yet. Browse a few sites!"]));
       return;
     }
-    for (const p of pages) results.append(renderHit(p, results));
+    for (const p of pages) results.append(renderHit(p));
   } catch (e) {
+    if (await requireRelogin(e)) return;
     results.replaceChildren(
       h("div", { class: "empty error" }, [e instanceof WtmApiError ? e.message : "Failed to load."]),
     );
@@ -429,8 +456,9 @@ async function runSearch(q: string, results: HTMLElement): Promise<void> {
       results.append(h("div", { class: "empty" }, [`No matches for “${q}”.`]));
       return;
     }
-    for (const hit of res.hits) results.append(renderHit(hit, results));
+    for (const hit of res.hits) results.append(renderHit(hit));
   } catch (e) {
+    if (await requireRelogin(e)) return;
     results.replaceChildren(
       h("div", { class: "empty error" }, [e instanceof WtmApiError ? e.message : "Search failed."]),
     );

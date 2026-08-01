@@ -8,7 +8,7 @@ Shared facts:
 | | |
 | --- | --- |
 | Name | Web Time Machine |
-| Version | 3.0.0 (build 1) |
+| Version | 4.0.0 (build 12) |
 | Privacy policy | https://webtm.io/privacy |
 | Support / marketing | https://webtm.io |
 | Source | https://github.com/webtimemachine/wtm3 |
@@ -130,7 +130,7 @@ Both packages strip source maps.
 ## We update the EXISTING extension, not a new listing
 
 There is already a published extension, **`dfijieibikhpelmfhkjmihgfgpoeigch`** (was v1.0).
-We push v3 onto it (keeps existing users/reviews); the site's "Add to Chrome" already
+We push v4 onto it (keeps existing users/reviews); the site's "Add to Chrome" already
 points at it. The throwaway new listing `hfelig…` was archived.
 
 ## Reviewer / tester instructions (CWS dashboard "Account" tab)
@@ -192,5 +192,4 @@ pnpm --filter @wtm/extension-chrome cws:publish
   That workflow packages Chrome and Firefox Android side by side, uploads both
   release artifacts, and publishes the Chrome package to the existing Chrome Web
   Store item.
-- Firefox Android is packaged for manual AMO submission/testing until Mozilla
-  publishing automation is added.
+- Firefox Android is published to AMO by the browser release workflow.

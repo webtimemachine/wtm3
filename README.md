@@ -1,92 +1,86 @@
-# Web Time Machine (v3)
+# Web Time Machine (v4)
 
-Passively record every page you visit — URL, title, timestamp, and the **readable
-text** of the page — across all your devices, then full-text search the content,
-see a one-line AI summary per page, and have history expire on a retention schedule
-or be manually deleted with deletes propagating everywhere.
+Web Time Machine passively captures the URL, title, timestamp, and readable
+text of pages you visit. It syncs that history to one account, makes the full
+text searchable, adds a one-line AI summary, and exposes the same history to
+Claude and Codex through MCP.
 
-Cloudflare-native rebuild. Earlier attempts (`wtm`, `wtm2`, `timemachine`) were a
-single central NestJS/Postgres/OpenAI backend — this is **not** a fork of them.
+This is a Cloudflare-native rebuild. Earlier projects named `wtm`, `wtm2`, and
+`timemachine` used a central NestJS/Postgres/OpenAI backend; this repository
+does not fork them.
 
-## Topology
+## Architecture
 
-```
-            ┌──────────────────────────────────────────────┐
-            │              Cloudflare (one backend)          │
- nodes ───► │  Worker (Hono)                                 │
- (devices)  │   ├─ D1 (SQLite): users, nodes, pages, FTS5    │
-            │   ├─ R2: full readable-text blobs              │
-            │   ├─ Workers AI: one-line per-page summaries    │
-            │   └─ Cron: retention purge                     │
-            └──────────────────────────────────────────────┘
-                 ▲             ▲              ▲                  ▲
-   ┌─────────────┘    ┌────────┘     ┌────────┘         ┌────────┘
- Chrome ext      Firefox Android  iOS Safari ext      Web dashboard
- (Readability)   (Readability)    (Readability)       (search + timeline)
+```text
+Chrome ─┐
+Firefox ├── push captures ──► Cloudflare Worker
+Safari ─┘                     ├─ D1: accounts, sessions, metadata, FTS5
+Web dashboard ◄───────────────┼─ R2: readable-text blobs
+Claude / Codex ◄── MCP ───────┼─ Workers AI: summaries and classification
+                              ├─ Email Service: password resets
+                              └─ Cron: retention and credential cleanup
 ```
 
-A **node** is one of your devices. Every node syncs to the single Cloudflare
-backend (not peer-to-peer): it pushes captured pages + deletes and pulls changes
-since a per-user sequence cursor, so new pages, generated summaries, and deletions
-all converge across devices.
+Devices only push captured pages. The dashboard, extensions, and MCP tools read
+the canonical server state directly. Deletes are permanent; v4 has no pull
+cursor, mutation sequence, or tombstone layer.
 
 ## Packages
 
-| Path                | What                                                            |
-| ------------------- | --------------------------------------------------------------- |
-| `shared/`           | Wire-protocol types + on-device capture (`@mozilla/readability`) |
-| `backend/`          | Cloudflare Worker: auth, ingest, search, sync, summaries, MCP, cron |
-| `extension-chrome/` | Manifest V3 extension (passive capture)                         |
-| `extension-firefox/`| Firefox for Android extension (passive capture)                  |
-| `extension-safari/` | iOS Safari Web Extension + Xcode wrapper                        |
-| `web/`              | Web dashboard (search + timeline), deploys to `webtm.io`        |
+| Path | Purpose |
+| --- | --- |
+| `shared/` | Wire types, API client, formatting, and on-device capture |
+| `backend/` | Hono Worker, D1/R2/AI/email bindings, OAuth MCP, retention |
+| `extension-chrome/` | Shared browser-extension source and Chrome MV3 build |
+| `extension-firefox/` | Firefox for Android build and AMO publishing |
+| `extension-safari/` | iOS Safari build and Xcode wrapper |
+| `web/` | React search/timeline dashboard at `webtm.io` |
+| `skills/` | Canonical recall skill, generated for Claude and Codex |
 
-## MCP recall interface
+## Accounts and sessions
 
-The backend exposes an MCP server at **`POST https://api.webtm.io/mcp`**
-(stateless streamable HTTP) so Claude and other MCP clients can search your
-history: `search_history`, `recent_history`, `get_page_text`. Pages flagged
-sensitive are excluded from results unless a call opts in. Two ways to
-authenticate:
+Passwords use PBKDF2-HMAC-SHA256. Successful logins issue random opaque
+90-day session tokens; D1 stores only their SHA-256 hashes. The account UI
+supports ordinary logout, log out everywhere, password change, single-use
+30-minute password reset links, and self-service account deletion. Password
+changes, resets, and account deletion also revoke MCP OAuth grants.
 
-- **claude.ai (web + mobile) and Claude Desktop** — full OAuth 2.1
-  (`@cloudflare/workers-oauth-provider`: dynamic client registration, PKCE,
-  refresh tokens, tokens in `OAUTH_KV`). Settings → Connectors → Add custom
-  connector → `https://api.webtm.io/mcp`, then sign in with your WTM
-  email/password on the consent screen.
-- **Claude Code / scripts** — the REST API's Bearer JWT
-  (`POST /auth/login` → `token`) works directly:
+Upgrading from v3 intentionally invalidates the old stateless JWTs, so every
+client signs in once after the v4 rollout.
 
-```sh
-claude mcp add --transport http wtm https://api.webtm.io/mcp \
-  --header "Authorization: Bearer <token>"
-```
+## MCP recall
 
-A companion skill teaching Claude when/how to use these tools lives at
-`.claude/skills/wtm-recall/`.
+`https://api.webtm.io/mcp` exposes:
 
-## Locked product decisions (§1 of the spec)
+- `search_history`
+- `recent_history`
+- `get_page_text`
 
-- **Backend:** Cloudflare Workers + D1 + R2 + Workers AI. No servers.
-- **Capture:** full readable text on-device (Readability) + URL/title/timestamp.
-- **Search:** D1 FTS5 over page content, BM25 ranked.
-- **Identity:** traditional email/password.
-- **Sync:** nodes → one Cloudflare backend.
-- **GitHub org:** https://github.com/webtimemachine · **Domains:** webtm.io / webtimemachine.io
-- **iOS:** bundle id `com.ttt246llc.wtm`, SKU `wtm2`, Apple ID `6477404511`.
+Remote clients can authenticate through OAuth 2.1. A v4 Web Time Machine
+session token also works as a direct Bearer token for local tools. The
+canonical usage skill is [`skills/wtm-recall/SKILL.md`](skills/wtm-recall/SKILL.md);
+`pnpm sync:skills` generates the repo-scoped Claude and Codex copies.
 
-> The spec handed off (§0–§1) was truncated before §2–§13 (architecture, data
-> model, milestone order, verification). The architecture/data-model here was
-> designed from the locked decisions; see `backend/migrations` and `shared/src`.
-
-## Quick start
+## Develop and verify
 
 ```bash
 pnpm install
-# Backend (provision + deploy): see backend/README.md
-pnpm --filter @wtm/backend deploy
+pnpm typecheck
+pnpm -r --if-present test
+pnpm build
 ```
 
-## Toolchain
+Backend setup and the required phased v4 deployment order are documented in
+[`backend/README.md`](backend/README.md).
 
-pnpm workspace · TypeScript · Wrangler · Hono. Node ≥ 20.
+## Product constants
+
+- Cloudflare Workers + D1 + R2 + Workers AI; no application servers
+- Full readable text extracted on-device with Mozilla Readability
+- D1 FTS5 search with BM25 ranking
+- Email/password identity
+- GitHub organization: <https://github.com/webtimemachine>
+- Domains: `webtm.io`, `webtimemachine.io`, and `api.webtm.io`
+- iOS bundle id: `com.ttt246llc.wtm`; Apple ID: `6477404511`
+
+Toolchain: pnpm workspace, TypeScript, Wrangler, Hono, React, Node 20 or newer.

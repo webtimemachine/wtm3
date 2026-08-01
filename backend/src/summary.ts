@@ -1,6 +1,5 @@
 import { hostname } from "@wtm/shared/format";
 import type { Env } from "./env";
-import { reserveSeq } from "./db";
 
 const MAX_INPUT_CHARS = 6000;
 
@@ -39,7 +38,7 @@ export interface PageAnalysis {
  * One Workers AI call that returns both a one-line summary and an adult-content flag.
  * Robust to non-JSON output (falls back to treating the response as the summary).
  */
-export async function summarizeText(
+async function summarizeText(
   env: Env,
   title: string,
   url: string,
@@ -94,7 +93,8 @@ export async function summarizeText(
 
 /**
  * Background task: summarize + classify freshly-ingested pages and write the result back,
- * bumping each page's seq so it propagates on next pull.
+ * preserving a content-hash guard so a late result cannot overwrite a newer
+ * recapture of the same page id.
  */
 export async function summarizePages(
   env: Env,
@@ -111,13 +111,12 @@ export async function summarizePages(
     }
     const status = !p.text ? "skipped" : summary ? "ready" : "error";
     const sensitive = adult ? 1 : 0;
-    const seq = await reserveSeq(env, userId, 1);
     // Stale-write guard: only apply if the page still holds the content we analyzed
-    // (a newer recapture changes content_hash). Bumping seq lets clients see the update.
+    // (a newer recapture changes content_hash).
     await env.DB.prepare(
-      "UPDATE pages SET summary=?1, summary_status=?2, sensitive=?3, seq=?4, updated_at=?5 WHERE id=?6 AND user_id=?7 AND deleted=0 AND content_hash=?8",
+      "UPDATE pages SET summary=?1, summary_status=?2, sensitive=?3 WHERE id=?4 AND user_id=?5 AND content_hash=?6",
     )
-      .bind(summary, status, sensitive, seq, Date.now(), p.id, userId, p.contentHash)
+      .bind(summary, status, sensitive, p.id, userId, p.contentHash)
       .run();
   }
 }

@@ -13,7 +13,7 @@ function routes(registered) {
       registered.push(call.body.id);
       return { id: call.body.id, name: call.body.name, platform: call.body.platform };
     },
-    "POST /sync/push": (call) => ({ accepted: call.body.pages.length, deleted: 0, seq: 1 }),
+    "POST /sync/push": (call) => ({ accepted: call.body.pages.length }),
   };
 }
 
@@ -71,7 +71,7 @@ test("registration failure surfaces as lastError and retries next run", async ()
       registered.push(call.body.id);
       return { id: call.body.id, name: call.body.name, platform: call.body.platform };
     },
-    "POST /sync/push": (call) => ({ accepted: call.body.pages.length, deleted: 0, seq: 1 }),
+    "POST /sync/push": (call) => ({ accepted: call.body.pages.length }),
   });
   await send({ type: "capture", page: page(1) });
   await send({ type: "flushNow" });

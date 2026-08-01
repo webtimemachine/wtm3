@@ -1,0 +1,9 @@
+export const DAY_MS = 86_400_000;
+export const DEFAULT_RETENTION_DAYS = 90;
+export const MIN_PASSWORD_LENGTH = 8;
+export const MAX_ITEMS_PER_PUSH = 200;
+export const MAX_NODES_PER_USER = 20;
+export const MAX_PAGES_PER_USER = 100_000;
+export const MAX_TEXT_BYTES_PER_USER = 2_000_000_000;
+export const PASSWORD_RESET_TTL_MS = 30 * 60_000;
+export const PASSWORD_RESET_MIN_INTERVAL_MS = 60_000;

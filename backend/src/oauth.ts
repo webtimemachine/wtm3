@@ -38,7 +38,7 @@ ${error ? `<div class="err">${esc(error)}</div>` : ""}
   <input id="password" name="password" type="password" autocomplete="current-password" required>
   <button type="submit">Sign in &amp; allow</button>
 </form>
-<div class="scope">Grants read access to your captured pages (search, timeline, page text). Sensitive-flagged pages stay excluded by default. You can revoke access any time by changing your password.</div>
+<div class="scope">Grants read access to your captured pages (search, timeline, page text). Sensitive-flagged pages stay excluded by default. Revoke access from Settings with “Log out everywhere” or by changing your password.</div>
 </div></body></html>`;
 }
 

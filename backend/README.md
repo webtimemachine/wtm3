@@ -40,7 +40,7 @@ POST   /nodes
 GET    /nodes
 PATCH  /nodes/:id
 POST   /sync/push
-GET    /search?q=&limit=&offset=
+GET    /search?q=&limit=&offset=&from=&to=&site=&sort=
 GET    /pages?limit=&before=<visitedAt>
 GET    /pages/:id
 GET    /pages/:id/text

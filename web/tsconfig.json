@@ -9,7 +9,8 @@
     "paths": {
       "@wtm/shared": ["../shared/src/index.ts"],
       "@wtm/shared/api": ["../shared/src/api.ts"],
-      "@wtm/shared/format": ["../shared/src/format.ts"]
+      "@wtm/shared/format": ["../shared/src/format.ts"],
+      "@wtm/shared/search": ["../shared/src/search.ts"]
     }
   },
   "include": ["src"]

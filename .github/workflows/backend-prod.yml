@@ -1,0 +1,55 @@
+name: Deploy backend → production (api.webtm.io)
+
+# Backend rollouts are manual because schema migrations must be sequenced with
+# compatible Worker deployments. The phase choice makes destructive cleanup an
+# explicit action instead of coupling it to every push to main.
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Production rollout phase
+        required: true
+        type: choice
+        options:
+          - additive-deploy
+          - cleanup-deploy
+          - deploy-only
+
+concurrency:
+  group: backend-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Record D1 Time Travel restore point
+        run: pnpm --filter @wtm/backend exec wrangler d1 time-travel info wtm --remote
+
+      - name: Apply additive v4 session migration
+        if: ${{ inputs.phase == 'additive-deploy' }}
+        run: pnpm --filter @wtm/backend migrate:v4:additive
+
+      - name: Apply remaining migrations
+        if: ${{ inputs.phase == 'cleanup-deploy' }}
+        run: pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --remote
+
+      - name: Deploy production Worker
+        run: pnpm --filter @wtm/backend deploy
+
+      - name: Verify production health
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors https://api.webtm.io/health

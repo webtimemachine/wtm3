@@ -19,8 +19,11 @@ user; pages flagged sensitive are excluded unless explicitly requested.
 
 - **`search_history`** — default entry point. Content words work best; search
   terms are prefix-matched and AND-ed ("compost" matches "composting"; "rust
-  async" requires both). If a query returns nothing, drop to fewer or more
-  distinctive terms instead of rephrasing the query as a sentence.
+  async" requires both). Narrow with `from` / `to` whenever the user knows the
+  approximate time, and with `site` when they remember where they read it.
+  Use `sort: "newest"` for recent or broad searches and `sort: "oldest"` when
+  they are looking for the first occurrence. If a query returns nothing, drop
+  to fewer or more distinctive terms instead of rephrasing it as a sentence.
 - **`recent_history`** — time-based recall with no good keyword ("what was I
   reading this morning?"). `days` accepts fractions (0.5 = last 12 hours).
 - **`get_page_text`** — full readable text by page id. Use it only when the
@@ -30,7 +33,8 @@ user; pages flagged sensitive are excluded unless explicitly requested.
 ## Answering recall questions
 
 1. Search with two or three distinctive content words. Add `from` or `to` ISO
-   dates when the user names a time frame.
+   dates when the user names a time frame, even approximately. Add `site` for
+   a remembered publisher or domain; a hostname or pasted URL both work.
 2. Present matches as title, URL, and visit date so the user can confirm the
    page. Include the URL because re-finding the page is usually the goal.
 3. If results are ambiguous, show the top candidates and ask instead of

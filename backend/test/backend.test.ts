@@ -322,6 +322,117 @@ describe("page lifecycle", () => {
     ).then((response) => response.json<{ total: number }>());
     expect(afterDelete.total).toBe(0);
   });
+
+  it("filters search by time and site and supports each sort order", async () => {
+    const auth = await register(
+      `filters-${crypto.randomUUID()}@example.com`,
+    );
+    const now = Date.now();
+    const pages = [
+      {
+        id: crypto.randomUUID(),
+        url: "https://www.example.com/new",
+        title: "New example result",
+        visitedAt: now - 2 * 86_400_000,
+        text: "filterable chronology phrase",
+      },
+      {
+        id: crypto.randomUUID(),
+        url: "https://archive.example.com/old",
+        title: "Old example result",
+        visitedAt: now - 60 * 86_400_000,
+        text: "filterable chronology phrase",
+      },
+      {
+        id: crypto.randomUUID(),
+        url: "https://unrelated.test/recent",
+        title: "Unrelated recent result",
+        visitedAt: now - 86_400_000,
+        text: "filterable chronology phrase",
+      },
+    ];
+    expect(
+      (
+        await jsonRequest(
+          "/sync/push",
+          "POST",
+          { deviceId: "filter-device", pages },
+          auth.token,
+        )
+      ).status,
+    ).toBe(200);
+
+    async function search(params: Record<string, string>) {
+      const query = new URLSearchParams({ q: "filterable", ...params });
+      const response = await request(`/search?${query}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      expect(response.status).toBe(200);
+      return response.json<{ hits: { id: string; title: string }[]; total: number }>();
+    }
+
+    const site = await search({
+      site: "https://example.com/a-page",
+      sort: "oldest",
+    });
+    expect(site.total).toBe(2);
+    expect(site.hits.map((hit) => hit.title)).toEqual([
+      "Old example result",
+      "New example result",
+    ]);
+
+    const recent = await search({
+      site: "example.com",
+      from: String(now - 7 * 86_400_000),
+      sort: "newest",
+    });
+    expect(recent.hits.map((hit) => hit.title)).toEqual([
+      "New example result",
+    ]);
+
+    const old = await search({
+      to: String(now - 30 * 86_400_000),
+      sort: "oldest",
+    });
+    expect(old.hits.map((hit) => hit.title)).toEqual([
+      "Old example result",
+    ]);
+
+    const mcp = await jsonRequest(
+      "/mcp",
+      "POST",
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "search_history",
+          arguments: {
+            query: "filterable",
+            site: "example.com",
+            sort: "oldest",
+          },
+        },
+      },
+      auth.token,
+    );
+    expect(mcp.status).toBe(200);
+    const rpc = await mcp.json<{
+      result: { content: { text: string }[] };
+    }>();
+    const content = rpc.result.content[0]?.text ?? "";
+    expect(content.indexOf("Old example result")).toBeLessThan(
+      content.indexOf("New example result"),
+    );
+
+    expect(
+      (
+        await request("/search?q=filterable&site=not%20a%20site", {
+          headers: { Authorization: `Bearer ${auth.token}` },
+        })
+      ).status,
+    ).toBe(400);
+  });
 });
 
 describe("password hashes", () => {

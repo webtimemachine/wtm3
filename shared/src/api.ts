@@ -15,6 +15,7 @@ import {
   type RegisterNodeRequest,
   type RegisterRequest,
   type SearchResponse,
+  type SearchOptions,
   type SettingsUpdate,
   type SyncPushRequest,
   type SyncPushResponse,
@@ -122,10 +123,14 @@ export class WtmClient {
   }
 
   // --- search & pages ---
-  search(query: string, opts: { limit?: number; offset?: number } = {}): Promise<SearchResponse> {
+  search(query: string, opts: SearchOptions = {}): Promise<SearchResponse> {
     const p = new URLSearchParams({ q: query });
     if (opts.limit != null) p.set("limit", String(opts.limit));
     if (opts.offset != null) p.set("offset", String(opts.offset));
+    if (opts.from != null) p.set("from", String(opts.from));
+    if (opts.to != null) p.set("to", String(opts.to));
+    if (opts.site?.trim()) p.set("site", opts.site.trim());
+    if (opts.sort) p.set("sort", opts.sort);
     return this.req("GET", `${Routes.search}?${p.toString()}`);
   }
   recent(opts: { limit?: number; before?: number } = {}): Promise<RecentResponse> {

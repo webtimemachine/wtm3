@@ -5,8 +5,15 @@ import {
   RETENTION_MIN_DAYS,
   type PageRecord,
   type SearchHit,
+  type SearchOptions,
+  type SearchSort,
 } from "@wtm/shared";
 import { chooseSubline, SEARCH_DEBOUNCE_MS, snippetHtml, timeAgo } from "@wtm/shared/format";
+import {
+  SEARCH_TIME_CHOICES,
+  searchRangeForPreset,
+  type SearchTimePreset,
+} from "@wtm/shared/search";
 import { DEFAULT_BACKEND, PLATFORM, type ExtState } from "./config";
 import { getQueueCount, getState } from "./storage";
 
@@ -224,15 +231,71 @@ async function renderApp(): Promise<void> {
 
   // search
   const search = h("input", { type: "search", placeholder: "Search your history…" }) as HTMLInputElement;
-  app.append(h("div", { class: "section" }, [search]));
+  const timeSelect = h("select", { "aria-label": "Time range" }) as HTMLSelectElement;
+  for (const choice of SEARCH_TIME_CHOICES) {
+    timeSelect.append(h("option", { value: choice.value }, [choice.label]));
+  }
+  const siteInput = h("input", {
+    type: "search",
+    placeholder: "Site, e.g. nytimes.com",
+    "aria-label": "Site",
+  }) as HTMLInputElement;
+  const sortSelect = h("select", { "aria-label": "Sort" }) as HTMLSelectElement;
+  for (const [value, label] of [
+    ["relevance", "Relevance"],
+    ["newest", "Newest first"],
+    ["oldest", "Oldest first"],
+  ] as const) {
+    sortSelect.append(h("option", { value }, [label]));
+  }
+  const fromInput = h("input", { type: "date", "aria-label": "From date" }) as HTMLInputElement;
+  const toInput = h("input", { type: "date", "aria-label": "Through date" }) as HTMLInputElement;
+  const customDates = h("div", { class: "search-custom-dates" }, [
+    h("label", {}, ["From", fromInput]),
+    h("label", {}, ["Through", toInput]),
+  ]);
+  customDates.hidden = true;
+  app.append(
+    h("div", { class: "section search-section" }, [
+      search,
+      h("div", { class: "search-filter-grid" }, [
+        h("label", {}, ["When", timeSelect]),
+        h("label", {}, ["Sort", sortSelect]),
+        h("label", { class: "search-site" }, ["Site", siteInput]),
+      ]),
+      customDates,
+    ]),
+  );
 
   const results = h("div", { class: "results" }, [h("div", { class: "empty" }, ["Loading recent pages…"])]);
   app.append(results);
 
-  search.addEventListener("input", () => {
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => void runSearch(search.value.trim(), results), SEARCH_DEBOUNCE_MS);
+  const currentSearchOptions = (): SearchOptions => ({
+    limit: 30,
+    ...searchRangeForPreset(
+      timeSelect.value as SearchTimePreset,
+      fromInput.value,
+      toInput.value,
+    ),
+    site: siteInput.value.trim(),
+    sort: sortSelect.value as SearchSort,
   });
+  const scheduleSearch = () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(
+      () => void runSearch(search.value.trim(), results, currentSearchOptions()),
+      SEARCH_DEBOUNCE_MS,
+    );
+  };
+  search.addEventListener("input", scheduleSearch);
+  siteInput.addEventListener("input", scheduleSearch);
+  sortSelect.addEventListener("change", scheduleSearch);
+  timeSelect.addEventListener("change", () => {
+    customDates.hidden = timeSelect.value !== "custom";
+    scheduleSearch();
+  });
+  fromInput.addEventListener("change", scheduleSearch);
+  toInput.addEventListener("change", scheduleSearch);
 
   await loadRecent(results);
 }
@@ -447,10 +510,24 @@ async function loadRecent(results: HTMLElement): Promise<void> {
   }
 }
 
-async function runSearch(q: string, results: HTMLElement): Promise<void> {
+async function runSearch(
+  q: string,
+  results: HTMLElement,
+  options: SearchOptions,
+): Promise<void> {
   if (!q) return loadRecent(results);
+  if (
+    options.from !== undefined &&
+    options.to !== undefined &&
+    options.from >= options.to
+  ) {
+    results.replaceChildren(
+      h("div", { class: "empty error" }, ["The start date must be before the end date."]),
+    );
+    return;
+  }
   try {
-    const res = await (await client()).search(q, { limit: 30 });
+    const res = await (await client()).search(q, options);
     results.replaceChildren();
     if (!res.hits.length) {
       results.append(h("div", { class: "empty" }, [`No matches for “${q}”.`]));

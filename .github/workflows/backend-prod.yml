@@ -40,7 +40,7 @@ jobs:
       - name: Record D1 Time Travel restore point
         run: pnpm --filter @wtm/backend exec wrangler d1 time-travel info wtm
 
-      - name: Apply additive v4 session migration
+      - name: Apply additive migrations
         if: ${{ inputs.phase == 'additive-deploy' }}
         run: pnpm --filter @wtm/backend migrate:v4:additive
 

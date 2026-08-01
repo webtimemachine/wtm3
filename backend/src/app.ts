@@ -34,6 +34,7 @@ const protectedPaths = [
   "/auth/logout",
   "/auth/logout-everywhere",
   "/auth/password",
+  "/auth/extension/approve",
   "/account",
   "/settings",
   "/nodes",
@@ -60,8 +61,24 @@ for (const path of protectedPaths) {
     c.set("userId", session.userId);
     c.set("email", session.email);
     c.set("sessionId", session.sessionId);
+    c.set("sessionScope", session.scope);
+    if (session.scope === "capture" && !captureSessionAllowed(c.req.method, c.req.path)) {
+      return c.json(
+        { error: "insufficient_scope", message: "This device token can only upload captured pages." },
+        403,
+      );
+    }
     await next();
   });
+}
+
+function captureSessionAllowed(method: string, path: string): boolean {
+  return (
+    (method === "GET" && path === "/auth/me") ||
+    (method === "POST" && path === "/auth/logout") ||
+    (method === "POST" && path === "/nodes") ||
+    (method === "POST" && path === "/sync/push")
+  );
 }
 
 registerAuthRoutes(app);

@@ -45,7 +45,8 @@ Output: `extension-safari/xcode/`.
 2. Select your **Team** under Signing & Capabilities for both the app and the
    extension targets (the extension's bundle id is `com.ttt246llc.wtm.Extension`).
 3. Run on the iOS Simulator or a device. On device: **Settings → Safari → Extensions
-   → Web Time Machine → Enable**, allow on All Websites, then open the popup and log in.
+   → Web Time Machine → Enable**, allow on All Websites, then open the popup and
+   connect it through `webtm.io`.
 4. Archive (Product → Archive) and upload to **App Store Connect**:
    - **Apple ID:** 6477404511
    - **SKU:** wtm2
@@ -54,6 +55,11 @@ Output: `extension-safari/xcode/`.
 ## Notes / Safari caveats
 
 - Rebuild and run `sync-resources` whenever the shared JS changes.
+- Sign-in happens on `webtm.io`, where iCloud Keychain and other password managers
+  work normally. Reopen the popup after approval if iOS closed it during handoff.
+- Search opens the hosted dashboard at `webtm.io`; capture controls and sync
+  diagnostics remain in the extension popup. The extension receives only a
+  capture-scoped token, not the website password or full account session.
 - Safari supports the `chrome.*` namespace, `storage`, `alarms`, content scripts,
   and an MV3 `service_worker`, so the shared code runs as-is. If a future Safari
   version balks at the module service worker, switch `manifest.json` background to

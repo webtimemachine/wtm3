@@ -43,6 +43,13 @@ button.secondary { background: transparent; color: var(--fg); border: 1px solid 
 button.link { background: none; color: var(--accent); padding: 4px 6px; font-weight: 600; font-size: 13px; }
 button.link.danger { color: var(--danger); }
 button:disabled { opacity: 0.5; cursor: default; }
+.button-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 10px; padding: 11px 16px;
+  background: var(--accent); color: var(--accent-fg); font-size: 14px;
+  font-weight: 700; line-height: normal; text-decoration: none;
+}
+.button-link.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
 .row { display: flex; gap: 10px; margin-top: 16px; }
 .error { color: var(--danger); margin-top: 12px; word-break: break-word; }
 .banner { max-width: var(--maxw); margin: 12px auto 0; padding: 0 18px; }
@@ -83,6 +90,21 @@ button:disabled { opacity: 0.5; cursor: default; }
   background: none; color: var(--accent); font-size: 13px; font-weight: 600;
 }
 .success { color: var(--accent); margin-top: 12px; }
+.compact-hero .tagline { margin-bottom: 0; }
+.connect-card { text-align: center; }
+.connect-card .card-title { font-size: 17px; }
+.connect-card .card-copy { line-height: 1.55; }
+.connect-card > .button-link, .connect-card > button { margin-top: 18px; }
+.connect-card strong { color: var(--fg); word-break: break-word; }
+.connect-check {
+  display: grid; place-items: center; width: 46px; height: 46px;
+  margin: 0 auto 14px; border-radius: 50%; background: rgba(56, 189, 248, .14);
+  color: var(--accent); font-size: 27px; font-weight: 800;
+}
+.connection-scope {
+  margin-top: 16px; padding: 11px 12px; border: 1px solid var(--line);
+  border-radius: 10px; color: var(--muted); font-size: 12px; text-align: left;
+}
 
 .footer { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
 .footer a { color: var(--muted); text-decoration: none; }
@@ -199,6 +221,7 @@ header .email { color: var(--muted); font-size: 13px; }
 .device-row .platform { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .saved { color: var(--accent); margin-top: 12px; font-size: 13px; }
 .security-grid { display: grid; gap: 8px; margin-top: 10px; }
+.security-grid label { margin: 0 0 -4px; }
 .security-grid .btn, .security-grid button { justify-self: start; }
 button.compact { margin-top: 10px; padding: 8px 12px; }
 .danger-zone { border-color: rgba(248, 113, 113, .35); }

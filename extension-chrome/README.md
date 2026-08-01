@@ -1,7 +1,7 @@
 # Web Time Machine — Chrome extension (MV3)
 
 Passively captures the readable text of every page you visit and syncs it to your
-Web Time Machine backend. Search and delete from the popup.
+Web Time Machine backend. Search and manage history in the hosted dashboard.
 
 ## Build
 
@@ -16,7 +16,8 @@ pnpm --filter @wtm/extension-chrome build   # -> dist/
 2. **Load unpacked** → select `extension-chrome/dist/`.
 3. Click the toolbar icon → set the **Backend URL** (default `https://api.webtm.io`,
    or your `wtm-backend.<subdomain>.workers.dev`, or `http://localhost:8787` for dev)
-   → **Create account** / **Log in**.
+   → **Connect with webtm.io**. Sign in or create an account on the website and
+   approve the browser connection.
 
 ## How it works
 
@@ -25,8 +26,14 @@ pnpm --filter @wtm/extension-chrome build   # -> dist/
 - `background.ts` — queues captures in `chrome.storage.local`, registers this device
   as a **node**, and `POST`s batches to `/sync/push` (debounced + a 1-min alarm).
   A `401` clears the token so the popup re-prompts.
-- `popup.ts` — login, capture on/off, sync status, full-text **search** (`/search`),
-  **recent** timeline (`/pages`), and **delete** (propagates to all devices).
+- `popup.ts` — passwordless website handoff, capture on/off, sync status,
+  device-specific recovery controls, and a link to the hosted dashboard.
+
+The extension never receives a password. The website exchanges a one-time,
+PKCE-protected connection request for a token restricted to account identity and
+capture uploads. Search and account settings continue to use the website session.
+On first open after upgrading, a legacy full-access extension session is replaced
+through the same approval flow.
 
 All API calls go through `@wtm/shared/api` (`WtmClient`), so the contract stays in
 lockstep with the backend and the other clients.

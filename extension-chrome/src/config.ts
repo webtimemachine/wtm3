@@ -15,6 +15,8 @@ export const PLATFORM: Platform =
 export interface ExtState {
   baseUrl: string;
   token: string | null;
+  /** Set only for tokens minted by the website extension-approval flow. */
+  tokenScope: "capture" | null;
   user: UserInfo | null;
   deviceId: string | null;
   /** Which user id (on which backend) deviceId was registered under, as "baseUrl|userId". */
@@ -24,6 +26,12 @@ export interface ExtState {
   lastError: string | null;
   /** When lastError was recorded; the popup stops showing errors after a TTL. */
   lastErrorAt: number | null;
+  pendingConnection: {
+    requestId: string;
+    codeVerifier: string;
+    expiresAt: number;
+    baseUrl: string;
+  } | null;
 }
 
 /** Key identifying which account a registered deviceId belongs to. */
@@ -34,6 +42,7 @@ export function deviceOwnerKey(baseUrl: string, userId: string): string {
 export const DEFAULT_STATE: ExtState = {
   baseUrl: DEFAULT_BACKEND,
   token: null,
+  tokenScope: null,
   user: null,
   deviceId: null,
   deviceOwner: null,
@@ -41,4 +50,5 @@ export const DEFAULT_STATE: ExtState = {
   lastSync: null,
   lastError: null,
   lastErrorAt: null,
+  pendingConnection: null,
 };

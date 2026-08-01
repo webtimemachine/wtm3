@@ -74,7 +74,8 @@ legacy schema compatibility needed during rollout.
 Do not apply all migrations before the compatible Worker is live.
 
 1. Onboard `webtm.io` in Cloudflare Email Sending.
-2. Apply only additive migration `0006_v4_sessions.sql`:
+2. Apply the additive migrations (`0006_v4_sessions.sql` and
+   `0008_extension_authorization.sql`):
    `pnpm --filter @wtm/backend migrate:v4:additive`.
 3. Deploy the v4 backend Worker. It accepts both the legacy and trimmed page
    schemas.
@@ -87,7 +88,7 @@ Do not apply all migrations before the compatible Worker is live.
    receive `401` and prompt one intentional re-login.
 
 After the additive phase and Worker deployment, the normal migration command
-applies only destructive migration 0007:
+applies the remaining destructive migration 0007:
 
 ```bash
 pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --remote

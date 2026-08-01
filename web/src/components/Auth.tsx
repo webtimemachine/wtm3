@@ -15,17 +15,23 @@ import {
 
 export function Auth({
   onAuthed,
+  initialBaseUrl = DEFAULT_BACKEND,
+  purpose,
 }: {
   onAuthed: (session: Session) => void;
+  initialBaseUrl?: string;
+  purpose?: string;
 }) {
   const resetToken = useMemo(
     () => new URLSearchParams(window.location.search).get("token") || "",
     [],
   );
-  const [mode, setMode] = useState<"signin" | "forgot" | "reset">(
+  const [mode, setMode] = useState<
+    "signin" | "register" | "forgot" | "reset"
+  >(
     resetToken ? "reset" : "signin",
   );
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_BACKEND);
+  const [baseUrl, setBaseUrl] = useState(initialBaseUrl);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -136,38 +142,63 @@ export function Auth({
       <div className="card">
         {mode === "signin" && (
           <>
-            <p className="card-title">Log in or create your account</p>
-            <BackendField value={baseUrl} onChange={setBaseUrl} />
-            <label>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-            />
-            <label>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="password (8+ chars)"
-              onKeyDown={(event) =>
-                event.key === "Enter" && void submit(false)
-              }
-            />
-            <div className="row">
-              <button disabled={busy} onClick={() => void submit(false)}>
-                Log in
-              </button>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => void submit(true)}
-              >
-                Create account
-              </button>
-            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit(false);
+              }}
+            >
+              <p className="card-title">Log in</p>
+              {purpose && <p className="card-copy">{purpose}</p>}
+              <BackendField
+                id="signin-backend"
+                value={baseUrl}
+                onChange={setBaseUrl}
+              />
+              <label htmlFor="signin-email">Email</label>
+              <input
+                id="signin-email"
+                name="username"
+                type="email"
+                autoComplete="username"
+                inputMode="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+              />
+              <label htmlFor="signin-password">Password</label>
+              <input
+                id="signin-password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Your password"
+              />
+              <div className="row">
+                <button type="submit" disabled={busy}>
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    clearNotices();
+                    setPassword("");
+                    setConfirmPassword("");
+                    setMode("register");
+                  }}
+                >
+                  Create account
+                </button>
+              </div>
+            </form>
             <button
+              type="button"
               className="text-button"
               onClick={() => {
                 clearNotices();
@@ -179,28 +210,114 @@ export function Auth({
           </>
         )}
 
+        {mode === "register" && (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (password !== confirmPassword) {
+                setError("The passwords do not match.");
+                return;
+              }
+              void submit(true);
+            }}
+          >
+            <p className="card-title">Create your account</p>
+            {purpose && <p className="card-copy">{purpose}</p>}
+            <BackendField
+              id="register-backend"
+              value={baseUrl}
+              onChange={setBaseUrl}
+            />
+            <label htmlFor="register-email">Email</label>
+            <input
+              id="register-email"
+              name="username"
+              type="email"
+              autoComplete="username"
+              inputMode="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+            <label htmlFor="register-password">Password</label>
+            <input
+              id="register-password"
+              name="new-password"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="8+ characters"
+            />
+            <label htmlFor="register-confirm-password">Confirm password</label>
+            <input
+              id="register-confirm-password"
+              name="new-password-confirmation"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+            <div className="row">
+              <button type="submit" disabled={busy}>
+                Create account
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  clearNotices();
+                  setPassword("");
+                  setConfirmPassword("");
+                  setMode("signin");
+                }}
+              >
+                Back
+              </button>
+            </div>
+          </form>
+        )}
+
         {mode === "forgot" && (
-          <>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void requestReset();
+            }}
+          >
             <p className="card-title">Reset your password</p>
             <p className="card-copy">
               We’ll email a single-use link that expires in 30 minutes.
             </p>
-            <BackendField value={baseUrl} onChange={setBaseUrl} />
-            <label>Email</label>
+            <BackendField
+              id="forgot-backend"
+              value={baseUrl}
+              onChange={setBaseUrl}
+            />
+            <label htmlFor="forgot-email">Email</label>
             <input
+              id="forgot-email"
+              name="email"
               type="email"
+              autoComplete="email"
+              inputMode="email"
+              required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="you@example.com"
-              onKeyDown={(event) =>
-                event.key === "Enter" && void requestReset()
-              }
             />
             <div className="row">
-              <button disabled={busy} onClick={() => void requestReset()}>
+              <button type="submit" disabled={busy}>
                 Send reset link
               </button>
               <button
+                type="button"
                 className="secondary"
                 disabled={busy}
                 onClick={() => {
@@ -211,39 +328,65 @@ export function Auth({
                 Back
               </button>
             </div>
-          </>
+          </form>
         )}
 
         {mode === "reset" && (
-          <>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmReset();
+            }}
+          >
             <p className="card-title">Choose a new password</p>
-            <BackendField value={baseUrl} onChange={setBaseUrl} />
-            <label>New password</label>
+            <BackendField
+              id="reset-backend"
+              value={baseUrl}
+              onChange={setBaseUrl}
+            />
+            <label htmlFor="reset-password">New password</label>
             <input
+              id="reset-password"
+              name="new-password"
               type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="8+ characters"
             />
-            <label>Confirm new password</label>
+            <label htmlFor="reset-confirm-password">
+              Confirm new password
+            </label>
             <input
+              id="reset-confirm-password"
+              name="new-password-confirmation"
               type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              onKeyDown={(event) =>
-                event.key === "Enter" && void confirmReset()
-              }
             />
             <div className="row">
-              <button disabled={busy} onClick={() => void confirmReset()}>
+              <button type="submit" disabled={busy}>
                 Change password
               </button>
             </div>
-          </>
+          </form>
         )}
 
-        {error && <div className="error">{error}</div>}
-        {message && <div className="success">{message}</div>}
+        {error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
+        )}
+        {message && (
+          <div className="success" role="status">
+            {message}
+          </div>
+        )}
       </div>
       <Footer />
     </div>
@@ -251,16 +394,23 @@ export function Auth({
 }
 
 function BackendField({
+  id,
   value,
   onChange,
 }: {
+  id: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
     <>
-      <label>Backend URL</label>
+      <label htmlFor={id}>Backend URL</label>
       <input
+        id={id}
+        name="backend"
+        type="url"
+        autoComplete="url"
+        required
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={DEFAULT_BACKEND}

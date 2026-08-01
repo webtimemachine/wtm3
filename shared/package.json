@@ -1,12 +1,13 @@
 {
   "name": "@wtm/shared",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Shared wire-protocol types and on-device page capture for Web Time Machine.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./capture": "./src/capture.ts",
     "./api": "./src/api.ts",
+    "./auth": "./src/auth.ts",
     "./format": "./src/format.ts",
     "./search": "./src/search.ts"
   },

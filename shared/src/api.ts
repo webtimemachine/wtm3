@@ -6,6 +6,11 @@ import {
   Routes,
   type AccountDeleteRequest,
   type AuthResponse,
+  type ExtensionAuthExchangeRequest,
+  type ExtensionAuthExchangeResponse,
+  type ExtensionAuthRequestInfo,
+  type ExtensionAuthStartRequest,
+  type ExtensionAuthStartResponse,
   type ApiError,
   type LoginRequest,
   type NodeInfo,
@@ -95,6 +100,18 @@ export class WtmClient {
   }
   async confirmPasswordReset(req: PasswordResetConfirmRequest): Promise<void> {
     await this.req("POST", Routes.confirmPasswordReset, req);
+  }
+  startExtensionAuth(req: ExtensionAuthStartRequest): Promise<ExtensionAuthStartResponse> {
+    return this.req("POST", Routes.extensionAuthStart, req);
+  }
+  extensionAuthRequest(requestId: string): Promise<ExtensionAuthRequestInfo> {
+    return this.req("POST", Routes.extensionAuthRequest, { requestId });
+  }
+  async approveExtensionAuth(requestId: string): Promise<void> {
+    await this.req("POST", Routes.extensionAuthApprove, { requestId });
+  }
+  exchangeExtensionAuth(req: ExtensionAuthExchangeRequest): Promise<ExtensionAuthExchangeResponse> {
+    return this.req("POST", Routes.extensionAuthToken, req);
   }
   async deleteAccount(req: AccountDeleteRequest): Promise<void> {
     await this.req("DELETE", Routes.account, req);

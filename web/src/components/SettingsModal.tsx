@@ -263,29 +263,46 @@ export function SettingsModal({
             This logs out every other session and revokes connected AI
             clients.
           </small>
-          <div className="security-grid">
+          <form
+            className="security-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void changePassword();
+            }}
+          >
+            <label htmlFor="settings-current-password">Current password</label>
             <input
+              id="settings-current-password"
+              name="current-password"
               type="password"
+              autoComplete="current-password"
+              required
               value={currentPassword}
               onChange={(event) =>
                 setCurrentPassword(event.target.value)
               }
               placeholder="Current password"
             />
+            <label htmlFor="settings-new-password">New password</label>
             <input
+              id="settings-new-password"
+              name="new-password"
               type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               placeholder="New password (8+ characters)"
             />
             <button
+              type="submit"
               className="btn"
               disabled={busy}
-              onClick={() => void changePassword()}
             >
               Change password
             </button>
-          </div>
+          </form>
         </section>
 
         <section className="setting">
@@ -308,9 +325,20 @@ export function SettingsModal({
             Permanently deletes your account, page metadata, search index,
             and stored readable text.
           </small>
-          <div className="security-grid">
+          <form
+            className="security-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void deleteAccount();
+            }}
+          >
+            <label htmlFor="delete-account-password">Current password</label>
             <input
+              id="delete-account-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
+              required
               value={deletePassword}
               onChange={(event) =>
                 setDeletePassword(event.target.value)
@@ -318,13 +346,13 @@ export function SettingsModal({
               placeholder="Confirm your password"
             />
             <button
+              type="submit"
               className="secondary danger-button"
               disabled={busy}
-              onClick={() => void deleteAccount()}
             >
               Delete account
             </button>
-          </div>
+          </form>
         </section>
 
         {error && <div className="error">{error}</div>}

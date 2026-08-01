@@ -1,7 +1,7 @@
 # Web Time Machine - Firefox for Android extension
 
 Firefox for Android build of the Web Time Machine extension. It reuses the
-Chrome extension source for capture, queueing, sync, auth, search, and popup UI,
+Chrome extension source for capture, queueing, sync, auth, and popup UI,
 but packages it as a Firefox-compatible Manifest V2 WebExtension.
 
 ## Build
@@ -27,4 +27,4 @@ The packaged archive is written to `extension-firefox/wtm-firefox-android.zip`.
 
 Load `extension-firefox/dist/` as a temporary add-on in Firefox for Android using
 Mozilla's Android extension debugging workflow, then sign in from the toolbar
-popup and verify capture, queued sync, search, and delete behavior.
+popup and verify capture, queued sync, and the hosted-search link.

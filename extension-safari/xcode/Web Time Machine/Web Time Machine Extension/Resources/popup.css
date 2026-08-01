@@ -32,11 +32,11 @@ header .email { color: var(--muted); font-size: 11px; max-width: 150px; overflow
 .row { display: flex; align-items: center; gap: 8px; }
 .section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
 
-input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="date"], select {
+input[type="text"], input[type="email"], input[type="password"] {
   width: 100%; padding: 9px 10px; border-radius: 8px;
   border: 1px solid var(--line); background: #0e1426; color: var(--fg); font-size: 13px;
 }
-input:focus, select:focus { outline: none; border-color: var(--accent); }
+input:focus { outline: none; border-color: var(--accent); }
 label { display: block; font-size: 11px; color: var(--muted); margin: 0 0 4px; }
 .field { margin-bottom: 10px; }
 
@@ -68,25 +68,9 @@ input[type="number"] {
 .settings[open] > summary { margin-bottom: 10px; }
 .settings .toggle { margin-bottom: 10px; }
 
-.search-section { display: grid; gap: 8px; }
-.search-filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.search-filter-grid label, .search-custom-dates label { margin: 0; }
-.search-filter-grid select, .search-filter-grid input, .search-custom-dates input {
-  margin-top: 3px; padding: 7px 8px; font-size: 11px;
+.search-launcher { display: flex; align-items: center; gap: 10px; }
+.primary-action {
+  flex: 1; padding: 10px 12px; border-radius: 8px;
+  background: var(--accent); color: var(--accent-fg);
+  font-weight: 600; text-align: center; text-decoration: none;
 }
-.search-filter-grid .search-site { grid-column: 1 / -1; }
-.search-custom-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.search-custom-dates[hidden] { display: none; }
-
-.results { overflow-y: auto; max-height: 360px; }
-.hit { padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.hit:hover { background: #10172b; }
-.hit .title { font-weight: 600; display: block; color: var(--fg); text-decoration: none; }
-.hit .title:hover { color: var(--accent); }
-.hit .summary { color: var(--muted); margin: 3px 0; }
-.hit .snippet { color: #b9c2dd; margin: 3px 0; font-size: 12px; }
-.hit .snippet mark { background: rgba(56,189,248,.25); color: var(--fg); border-radius: 3px; padding: 0 2px; }
-.hit .meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.hit .url { color: #5f6a8c; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.empty { padding: 24px 14px; color: var(--muted); text-align: center; }
-.pill { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }

@@ -1,7 +1,7 @@
 # Web Time Machine — Chrome extension (MV3)
 
 Passively captures the readable text of every page you visit and syncs it to your
-Web Time Machine backend. Search and delete from the popup.
+Web Time Machine backend. Search and manage history in the hosted dashboard.
 
 ## Build
 
@@ -25,8 +25,8 @@ pnpm --filter @wtm/extension-chrome build   # -> dist/
 - `background.ts` — queues captures in `chrome.storage.local`, registers this device
   as a **node**, and `POST`s batches to `/sync/push` (debounced + a 1-min alarm).
   A `401` clears the token so the popup re-prompts.
-- `popup.ts` — login, capture on/off, sync status, full-text **search** (`/search`),
-  **recent** timeline (`/pages`), and **delete** (propagates to all devices).
+- `popup.ts` — login, capture on/off, sync status, device-specific recovery
+  controls, and a link to the hosted search dashboard at `webtm.io`.
 
 All API calls go through `@wtm/shared/api` (`WtmClient`), so the contract stays in
 lockstep with the backend and the other clients.

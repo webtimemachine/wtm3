@@ -54,6 +54,8 @@ Output: `extension-safari/xcode/`.
 ## Notes / Safari caveats
 
 - Rebuild and run `sync-resources` whenever the shared JS changes.
+- Search opens the hosted dashboard at `webtm.io`; capture controls and sync
+  diagnostics remain in the extension popup.
 - Safari supports the `chrome.*` namespace, `storage`, `alarms`, content scripts,
   and an MV3 `service_worker`, so the shared code runs as-is. If a future Safari
   version balks at the module service worker, switch `manifest.json` background to

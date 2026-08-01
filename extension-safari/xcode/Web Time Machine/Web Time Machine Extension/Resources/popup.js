@@ -142,17 +142,6 @@
   };
 
   // ../shared/src/format.ts
-  var SEARCH_DEBOUNCE_MS = 220;
-  function snippetHtml(s) {
-    const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return esc.replaceAll("&lt;mark&gt;", "<mark>").replaceAll("&lt;/mark&gt;", "</mark>");
-  }
-  function chooseSubline(p) {
-    if (p.snippet) return { kind: "snippet", value: p.snippet };
-    if (p.summary) return { kind: "summary", value: p.summary };
-    if (p.summaryStatus === "pending") return { kind: "pending" };
-    return { kind: "none" };
-  }
   function timeAgo(ms) {
     const s = Math.round((Date.now() - ms) / 1e3);
     if (s < 60) return "just now";
@@ -163,43 +152,6 @@
     const d = Math.round(hr / 24);
     if (d < 30) return `${d}d ago`;
     return new Date(ms).toLocaleDateString();
-  }
-
-  // ../shared/src/search.ts
-  var DAY_MS = 864e5;
-  var SEARCH_TIME_CHOICES = [
-    { value: "any", label: "Any time" },
-    { value: "today", label: "Today" },
-    { value: "7d", label: "7 days" },
-    { value: "30d", label: "30 days" },
-    { value: "1y", label: "1 year" },
-    { value: "custom", label: "Custom" }
-  ];
-  function localDateStart(value, addDays = 0) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (!match) return void 0;
-    const date = new Date(
-      Number(match[1]),
-      Number(match[2]) - 1,
-      Number(match[3]) + addDays
-    );
-    return Number.isFinite(date.getTime()) ? date.getTime() : void 0;
-  }
-  function searchRangeForPreset(preset, customFrom = "", customTo = "", now = Date.now()) {
-    if (preset === "custom") {
-      return {
-        from: localDateStart(customFrom),
-        to: localDateStart(customTo, 1)
-      };
-    }
-    if (preset === "any") return {};
-    if (preset === "today") {
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      return { from: start.getTime() };
-    }
-    const days = preset === "7d" ? 7 : preset === "30d" ? 30 : 365;
-    return { from: now - days * DAY_MS };
   }
 
   // ../extension-chrome/src/config.ts
@@ -675,6 +627,7 @@
 
   // ../extension-chrome/src/popup.ts
   var app = document.getElementById("app");
+  var DASHBOARD_URL = "https://webtm.io/";
   function h(tag, attrs = {}, children = []) {
     const e = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
@@ -759,7 +712,6 @@
       ])
     );
   }
-  var searchTimer = null;
   async function renderStatus(container) {
     const st = await getState();
     const queued = await getQueueCount();
@@ -815,72 +767,22 @@
     app.append(status);
     await renderStatus(status);
     void chrome.runtime.sendMessage({ type: "flushNow" }).catch(() => null).then(() => renderStatus(status));
-    app.append(await buildSettings(st));
-    const search = h("input", { type: "search", placeholder: "Search your history\u2026" });
-    const timeSelect = h("select", { "aria-label": "Time range" });
-    for (const choice of SEARCH_TIME_CHOICES) {
-      timeSelect.append(h("option", { value: choice.value }, [choice.label]));
-    }
-    const siteInput = h("input", {
-      type: "search",
-      placeholder: "Site, e.g. nytimes.com",
-      "aria-label": "Site"
-    });
-    const sortSelect = h("select", { "aria-label": "Sort" });
-    for (const [value, label] of [
-      ["relevance", "Relevance"],
-      ["newest", "Newest first"],
-      ["oldest", "Oldest first"]
-    ]) {
-      sortSelect.append(h("option", { value }, [label]));
-    }
-    const fromInput = h("input", { type: "date", "aria-label": "From date" });
-    const toInput = h("input", { type: "date", "aria-label": "Through date" });
-    const customDates = h("div", { class: "search-custom-dates" }, [
-      h("label", {}, ["From", fromInput]),
-      h("label", {}, ["Through", toInput])
-    ]);
-    customDates.hidden = true;
     app.append(
-      h("div", { class: "section search-section" }, [
-        search,
-        h("div", { class: "search-filter-grid" }, [
-          h("label", {}, ["When", timeSelect]),
-          h("label", {}, ["Sort", sortSelect]),
-          h("label", { class: "search-site" }, ["Site", siteInput])
-        ]),
-        customDates
+      h("div", { class: "section search-launcher" }, [
+        h(
+          "a",
+          {
+            class: "primary-action",
+            href: DASHBOARD_URL,
+            target: "_blank",
+            rel: "noreferrer"
+          },
+          ["Search your history"]
+        ),
+        h("span", { class: "hint" }, ["Opens webtm.io"])
       ])
     );
-    const results = h("div", { class: "results" }, [h("div", { class: "empty" }, ["Loading recent pages\u2026"])]);
-    app.append(results);
-    const currentSearchOptions = () => ({
-      limit: 30,
-      ...searchRangeForPreset(
-        timeSelect.value,
-        fromInput.value,
-        toInput.value
-      ),
-      site: siteInput.value.trim(),
-      sort: sortSelect.value
-    });
-    const scheduleSearch = () => {
-      if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(
-        () => void runSearch(search.value.trim(), results, currentSearchOptions()),
-        SEARCH_DEBOUNCE_MS
-      );
-    };
-    search.addEventListener("input", scheduleSearch);
-    siteInput.addEventListener("input", scheduleSearch);
-    sortSelect.addEventListener("change", scheduleSearch);
-    timeSelect.addEventListener("change", () => {
-      customDates.hidden = timeSelect.value !== "custom";
-      scheduleSearch();
-    });
-    fromInput.addEventListener("change", scheduleSearch);
-    toInput.addEventListener("change", scheduleSearch);
-    await loadRecent(results);
+    app.append(await buildSettings(st));
   }
   async function buildSettings(st) {
     const filterCb = h("input", { type: "checkbox" });
@@ -1015,78 +917,6 @@
       ])
     );
     return h("details", { class: "section settings" }, children);
-  }
-  function renderHit(p) {
-    const chosen = chooseSubline({ ..."snippet" in p && { snippet: p.snippet }, summary: p.summary, summaryStatus: p.summaryStatus });
-    const sub = chosen.kind === "snippet" ? h("div", { class: "snippet", html: snippetHtml(chosen.value) }) : chosen.kind === "summary" ? h("div", { class: "summary" }, [chosen.value]) : chosen.kind === "pending" ? h("div", { class: "summary hint" }, ["Summarizing\u2026"]) : null;
-    const del = h("button", { class: "secondary tiny", title: "Delete everywhere" }, ["Delete"]);
-    del.addEventListener("click", async () => {
-      del.disabled = true;
-      try {
-        await (await client()).deletePage(p.id);
-        row.remove();
-      } catch {
-        del.disabled = false;
-      }
-    });
-    const children = [
-      h("a", { class: "title", href: p.url, target: "_blank", rel: "noreferrer" }, [p.title || p.url])
-    ];
-    if (sub) children.push(sub);
-    children.push(
-      h("div", { class: "meta" }, [
-        h("span", { class: "url" }, [p.url]),
-        h("span", { class: "pill" }, [timeAgo(p.visitedAt)]),
-        del
-      ])
-    );
-    const row = h("div", { class: "hit" }, children);
-    return row;
-  }
-  async function requireRelogin(error) {
-    if (!(error instanceof WtmApiError) || error.status !== 401) return false;
-    await mutate({ token: null, user: null });
-    await renderAuth("Your session ended. Log in once to continue.");
-    return true;
-  }
-  async function loadRecent(results) {
-    try {
-      const { pages } = await (await client()).recent({ limit: 30 });
-      results.replaceChildren();
-      if (!pages.length) {
-        results.append(h("div", { class: "empty" }, ["No pages captured yet. Browse a few sites!"]));
-        return;
-      }
-      for (const p of pages) results.append(renderHit(p));
-    } catch (e) {
-      if (await requireRelogin(e)) return;
-      results.replaceChildren(
-        h("div", { class: "empty error" }, [e instanceof WtmApiError ? e.message : "Failed to load."])
-      );
-    }
-  }
-  async function runSearch(q, results, options) {
-    if (!q) return loadRecent(results);
-    if (options.from !== void 0 && options.to !== void 0 && options.from >= options.to) {
-      results.replaceChildren(
-        h("div", { class: "empty error" }, ["The start date must be before the end date."])
-      );
-      return;
-    }
-    try {
-      const res = await (await client()).search(q, options);
-      results.replaceChildren();
-      if (!res.hits.length) {
-        results.append(h("div", { class: "empty" }, [`No matches for \u201C${q}\u201D.`]));
-        return;
-      }
-      for (const hit of res.hits) results.append(renderHit(hit));
-    } catch (e) {
-      if (await requireRelogin(e)) return;
-      results.replaceChildren(
-        h("div", { class: "empty error" }, [e instanceof WtmApiError ? e.message : "Search failed."])
-      );
-    }
   }
   void renderApp();
 })();

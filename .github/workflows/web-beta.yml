@@ -49,6 +49,8 @@ jobs:
       # until then.
       - name: Build + sign Firefox beta XPI (AMO unlisted)
         if: ${{ env.AMO_JWT_ISSUER != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
         env:
           # Unique version per build so AMO accepts each unlisted signing.
           WTM_FIREFOX_VERSION: 4.0.0.${{ github.run_number }}

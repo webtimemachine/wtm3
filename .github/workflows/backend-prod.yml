@@ -49,7 +49,7 @@ jobs:
         run: pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --remote
 
       - name: Deploy production Worker
-        run: pnpm --filter @wtm/backend deploy
+        run: pnpm --filter @wtm/backend run deploy
 
       - name: Verify production health
         run: curl --fail --silent --show-error --retry 5 --retry-all-errors https://api.webtm.io/health

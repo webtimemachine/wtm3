@@ -120,6 +120,7 @@ async function renderAuth(errorMessage?: string): Promise<void> {
         {
           baseUrl: state.pendingConnection.baseUrl,
           token: response.token,
+          tokenScope: "capture",
           user: response.user,
           pendingConnection: null,
           lastError: null,
@@ -297,6 +298,11 @@ async function renderStatus(container: HTMLElement): Promise<void> {
 
 async function renderApp(): Promise<void> {
   const state = await getState();
+  if (state.token && state.user && state.tokenScope !== "capture") {
+    await mutate({ token: null, tokenScope: null, user: null });
+    await renderAuth();
+    return;
+  }
   if (!state.token || !state.user) {
     await renderAuth();
     return;
@@ -327,7 +333,12 @@ async function renderApp(): Promise<void> {
       // Local disconnect still works offline. The server token expires later.
     }
     try {
-      await mutate({ token: null, user: null, pendingConnection: null });
+      await mutate({
+        token: null,
+        tokenScope: null,
+        user: null,
+        pendingConnection: null,
+      });
       await renderAuth();
     } catch {
       disconnect.disabled = false;

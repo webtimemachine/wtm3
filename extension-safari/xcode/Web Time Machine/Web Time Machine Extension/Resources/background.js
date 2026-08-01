@@ -161,6 +161,7 @@
   var DEFAULT_STATE = {
     baseUrl: DEFAULT_BACKEND,
     token: null,
+    tokenScope: null,
     user: null,
     deviceId: null,
     deviceOwner: null,
@@ -1321,7 +1322,7 @@
       try {
         await applyStatePatch({ lastError: msg, lastErrorAt: Date.now() });
         if (e instanceof WtmApiError && e.status === 401) {
-          await applyStatePatch({ token: null });
+          await applyStatePatch({ token: null, tokenScope: null });
         }
       } catch {
       }

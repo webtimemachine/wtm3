@@ -32,6 +32,8 @@ pnpm --filter @wtm/extension-chrome build   # -> dist/
 The extension never receives a password. The website exchanges a one-time,
 PKCE-protected connection request for a token restricted to account identity and
 capture uploads. Search and account settings continue to use the website session.
+On first open after upgrading, a legacy full-access extension session is replaced
+through the same approval flow.
 
 All API calls go through `@wtm/shared/api` (`WtmClient`), so the contract stays in
 lockstep with the backend and the other clients.

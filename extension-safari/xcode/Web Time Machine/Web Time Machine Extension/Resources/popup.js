@@ -191,6 +191,7 @@
   var DEFAULT_STATE = {
     baseUrl: DEFAULT_BACKEND,
     token: null,
+    tokenScope: null,
     user: null,
     deviceId: null,
     deviceOwner: null,
@@ -739,6 +740,7 @@
           {
             baseUrl: state.pendingConnection.baseUrl,
             token: response.token,
+            tokenScope: "capture",
             user: response.user,
             pendingConnection: null,
             lastError: null,
@@ -888,6 +890,11 @@
   }
   async function renderApp() {
     const state = await getState();
+    if (state.token && state.user && state.tokenScope !== "capture") {
+      await mutate({ token: null, tokenScope: null, user: null });
+      await renderAuth();
+      return;
+    }
     if (!state.token || !state.user) {
       await renderAuth();
       return;
@@ -915,7 +922,12 @@
       } catch {
       }
       try {
-        await mutate({ token: null, user: null, pendingConnection: null });
+        await mutate({
+          token: null,
+          tokenScope: null,
+          user: null,
+          pendingConnection: null
+        });
         await renderAuth();
       } catch {
         disconnect.disabled = false;

@@ -157,7 +157,7 @@ async function flush(): Promise<void> {
       if (e instanceof WtmApiError && e.status === 401) {
         // Token expired/invalid — drop it so the popup prompts a re-login;
         // keep deviceId/deviceOwner so the same account reuses this node.
-        await applyStatePatch({ token: null });
+        await applyStatePatch({ token: null, tokenScope: null });
       }
     } catch {
       // Reporting the error must never itself throw (e.g. storage still full).

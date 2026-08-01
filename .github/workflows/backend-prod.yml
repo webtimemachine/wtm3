@@ -38,7 +38,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Record D1 Time Travel restore point
-        run: pnpm --filter @wtm/backend exec wrangler d1 time-travel info wtm --remote
+        run: pnpm --filter @wtm/backend exec wrangler d1 time-travel info wtm
 
       - name: Apply additive v4 session migration
         if: ${{ inputs.phase == 'additive-deploy' }}

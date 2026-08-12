@@ -16,15 +16,8 @@ export interface CaptureResult {
 // Re-exported for existing importers; the definition lives with the wire contract.
 export { MAX_TEXT_CHARS };
 
-const SKIP_URL_SCHEMES = ["about:", "chrome:", "chrome-extension:", "moz-extension:", "edge:", "view-source:", "devtools:"];
-
-/** Heuristic: should this URL be captured at all? */
-export function isCapturableUrl(url: string): boolean {
-  if (!url) return false;
-  const lower = url.toLowerCase();
-  if (!(lower.startsWith("http://") || lower.startsWith("https://"))) return false;
-  return !SKIP_URL_SCHEMES.some((s) => lower.startsWith(s));
-}
+// URL policy lives in ./url so the Worker can import it without DOM types.
+export { isCapturableUrl, redactUrlCredentials } from "./url";
 
 function collapseWhitespace(s: string): string {
   return s.replace(/[ \t\f\v]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();

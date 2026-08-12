@@ -35,6 +35,7 @@ import {
   toMatchQuery,
 } from "../search";
 import { isKnownAdultDomain, summarizePages } from "../summary";
+import { redactUrlCredentials } from "@wtm/shared/url";
 
 type App = Hono<{ Bindings: Env; Variables: Vars }>;
 
@@ -62,7 +63,9 @@ function normalizedPages(value: unknown, now: number): CapturedPage[] {
     const visitedAt = Number(candidate.visitedAt);
     pages.set(candidate.id, {
       id: candidate.id,
-      url: candidate.url,
+      // Belt-and-braces: extensions already redact on-device, but older
+      // installs in the wild do not, and a credential must never be stored.
+      url: redactUrlCredentials(candidate.url),
       title:
         typeof candidate.title === "string"
           ? candidate.title.slice(0, 1024)

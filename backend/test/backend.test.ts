@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import { hashOpaqueToken, hashPassword } from "../src/auth";
 import { createPkcePair } from "@wtm/shared/auth";
+import { isCapturableUrl, redactUrlCredentials } from "@wtm/shared/url";
 import type { Env } from "../src/env";
 
 const origin = "https://api.webtm.io";
@@ -633,6 +634,58 @@ describe("page lifecycle", () => {
     expect(await titles("hot module reload")).toEqual(["Dev server"]);
   });
 
+  it("redacts credentials out of captured URLs", async () => {
+    const auth = await register(`redact-${crypto.randomUUID()}@example.com`);
+    const cases = [
+      // [pushed, stored]
+      [
+        "http://tdx2.example.net:58627/#token=NYLweUDXdH3QidN7YccZn0KziVKX",
+        "http://tdx2.example.net:58627/#token=REDACTED",
+      ],
+      [
+        "https://app.example.com/callback?code=abc123&state=xyz",
+        "https://app.example.com/callback?code=REDACTED&state=xyz",
+      ],
+      // Ordinary params and plain anchors must survive untouched.
+      [
+        "https://www.youtube.com/watch?v=lPze7AA7gAA&utm_source=news#t=42",
+        "https://www.youtube.com/watch?v=lPze7AA7gAA&utm_source=news#t=42",
+      ],
+      ["https://ph4.example.art/#climate", "https://ph4.example.art/#climate"],
+    ];
+    const pages = cases.map(([url], index) => ({
+      id: crypto.randomUUID(),
+      url: url as string,
+      title: `Redaction case ${index}`,
+      visitedAt: Date.now(),
+      text: `redactioncase${index} body text`,
+    }));
+    expect(
+      (
+        await jsonRequest(
+          "/sync/push",
+          "POST",
+          { deviceId: "redact-device", pages },
+          auth.token,
+        )
+      ).status,
+    ).toBe(200);
+
+    for (const [index, [, expected]] of cases.entries()) {
+      const response = await request(`/pages/${pages[index]!.id}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      expect(response.status).toBe(200);
+      expect((await response.json<{ url: string }>()).url).toBe(expected);
+    }
+
+    // The secret is gone from the index, not merely hidden from the response.
+    const leaked = await request("/search?q=NYLweUDXdH3QidN7YccZn0KziVKX", {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    });
+    expect((await leaked.json<{ hits: unknown[] }>()).hits).toHaveLength(0);
+  });
+
   it("searches bylines, excerpts, and generated summaries", async () => {
     const auth = await register(`meta-${crypto.randomUUID()}@example.com`);
     const page = {
@@ -677,6 +730,46 @@ describe("page lifecycle", () => {
       .bind("Explains quadrupedal locomotion in salamanders.", page.id, auth.user.id)
       .run();
     expect(await titles("salamanders")).toEqual(["Untitled shell"]);
+  });
+});
+
+describe("url policy", () => {
+  it("skips Web Time Machine's own surfaces", () => {
+    for (const url of [
+      "https://webtm.io/",
+      "https://www.webtm.io/search?q=x",
+      "https://api.webtm.io/health",
+      "https://webtimemachine.io/",
+    ]) {
+      expect(isCapturableUrl(url)).toBe(false);
+    }
+    for (const url of [
+      "https://example.com/webtm.io",
+      "https://notwebtm.io/",
+      "http://localhost:58627/dashboard",
+    ]) {
+      expect(isCapturableUrl(url)).toBe(true);
+    }
+  });
+
+  it("redacts credential values and leaves everything else alone", () => {
+    expect(redactUrlCredentials("https://x.test/?token=abc&v=7")).toBe(
+      "https://x.test/?token=REDACTED&v=7",
+    );
+    expect(redactUrlCredentials("https://x.test/#access_token=abc&scope=r")).toBe(
+      "https://x.test/#access_token=REDACTED&scope=r",
+    );
+    // Untouched: ordinary params, plain anchors, params merely containing a
+    // credential word, and empty values.
+    for (const url of [
+      "https://x.test/watch?v=abc123&utm_source=news",
+      "https://x.test/#climate",
+      "https://x.test/?tokenizer=bpe",
+      "https://x.test/?token=",
+      "not a url at all",
+    ]) {
+      expect(redactUrlCredentials(url)).toBe(url);
+    }
   });
 });
 

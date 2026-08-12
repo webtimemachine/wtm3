@@ -19,13 +19,18 @@ user; pages flagged sensitive are excluded unless explicitly requested.
 
 - **`search_history`** — default entry point. Content words work best; search
   terms are prefix-matched and AND-ed ("compost" matches "composting"; "rust
-  async" requires both). Titles, page text, and **URLs** are all indexed, so
-  address fragments are valid query terms — a handle from a profile link
-  ("nycmayor"), a path segment, or a port ("58627" finds
-  `http://localhost:58627/`). URL words are split on punctuation, so query
-  whole tokens rather than mid-word fragments. Narrow with `from` / `to`
-  whenever the user knows the approximate time, and with `site` when they
-  remember where they read it.
+  async" requires both). Titles, page text, **URLs**, **author bylines**, and
+  each page's **one-line summary** are all indexed. So address fragments are
+  valid query terms — a handle from a profile link ("nycmayor"), a path
+  segment, or a port ("58627" finds `http://localhost:58627/`) — as are author
+  names, and words that only ever appeared in a summary. That last one matters
+  for shell-titled pages: a YouTube or dashboard visit whose title is just
+  "YouTube" is usually findable only by what its summary says about it, so
+  describing the content ("iliad recitation", "climate dashboard") works even
+  when the user never saw those words on screen. URL words split on
+  punctuation, so query whole tokens rather than mid-word fragments. Narrow
+  with `from` / `to` whenever the user knows the approximate time, and with
+  `site` when they remember where they read it.
   Use `sort: "newest"` for recent or broad searches and `sort: "oldest"` when
   they are looking for the first occurrence. If a query returns nothing, drop
   to fewer or more distinctive terms instead of rephrasing it as a sentence.

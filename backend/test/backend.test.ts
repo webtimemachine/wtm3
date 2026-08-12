@@ -632,6 +632,52 @@ describe("page lifecycle", () => {
     // Text and title search keep working.
     expect(await titles("hot module reload")).toEqual(["Dev server"]);
   });
+
+  it("searches bylines, excerpts, and generated summaries", async () => {
+    const auth = await register(`meta-${crypto.randomUUID()}@example.com`);
+    const page = {
+      id: crypto.randomUUID(),
+      url: "https://example.com/feature",
+      title: "Untitled shell",
+      visitedAt: Date.now(),
+      text: "Body copy that mentions none of the distinctive words below.",
+      byline: "Zeynep Kowalczyk",
+      excerpt: "A dispatch about riverboat cartography.",
+    };
+    expect(
+      (
+        await jsonRequest(
+          "/sync/push",
+          "POST",
+          { deviceId: "meta-device", pages: [page] },
+          auth.token,
+        )
+      ).status,
+    ).toBe(200);
+
+    async function titles(q: string) {
+      const response = await request(
+        `/search?${new URLSearchParams({ q })}`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json<{ hits: { title: string }[] }>();
+      return body.hits.map((hit) => hit.title);
+    }
+
+    // Author and excerpt come from capture and are indexed at ingest.
+    expect(await titles("kowalczyk")).toEqual(["Untitled shell"]);
+    expect(await titles("riverboat cartography")).toEqual(["Untitled shell"]);
+
+    // The summary arrives later, from the background summarizer; simulate that
+    // write and confirm the index picks it up. Shell-titled pages depend on it.
+    await env.DB.prepare(
+      "UPDATE pages_fts SET summary=?1 WHERE page_id=?2 AND user_id=?3",
+    )
+      .bind("Explains quadrupedal locomotion in salamanders.", page.id, auth.user.id)
+      .run();
+    expect(await titles("salamanders")).toEqual(["Untitled shell"]);
+  });
 });
 
 describe("password hashes", () => {

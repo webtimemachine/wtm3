@@ -19,6 +19,7 @@ import {
   contentHash,
   deletePageStmts,
   hasLegacyPageColumns,
+  hasWideFtsColumns,
   purgeTextObjects,
   rowToPage,
   textKey,
@@ -110,6 +111,7 @@ export function registerPageRoutes(app: App): void {
     const body = (await c.req.json().catch(() => null)) as SyncPushRequest | null;
     const now = Date.now();
     const legacySchema = await hasLegacyPageColumns(c.env);
+    const wideFts = await hasWideFtsColumns(c.env);
     const deviceId =
       typeof body?.deviceId === "string"
         ? body.deviceId.slice(0, 128)
@@ -309,16 +311,24 @@ export function registerPageRoutes(app: App): void {
         c.env.DB.prepare(
           "DELETE FROM pages_fts WHERE page_id=?1 AND user_id=?2",
         ).bind(page.id, userId),
-        c.env.DB.prepare(
-          `INSERT INTO pages_fts (title,body,url,page_id,user_id)
-           VALUES (?1,?2,?3,?4,?5)`,
-        ).bind(
-          page.title || "",
-          page.text,
-          page.url,
-          page.id,
-          userId,
-        ),
+        wideFts
+          ? c.env.DB.prepare(
+              // `summary` is filled in later by the background summarizer.
+              `INSERT INTO pages_fts (title,body,url,byline,excerpt,summary,page_id,user_id)
+               VALUES (?1,?2,?3,?4,?5,'',?6,?7)`,
+            ).bind(
+              page.title || "",
+              page.text,
+              page.url,
+              page.byline ?? "",
+              page.excerpt ?? "",
+              page.id,
+              userId,
+            )
+          : c.env.DB.prepare(
+              `INSERT INTO pages_fts (title,body,url,page_id,user_id)
+               VALUES (?1,?2,?3,?4,?5)`,
+            ).bind(page.title || "", page.text, page.url, page.id, userId),
       );
     }
     await c.env.DB.batch(statements);
@@ -393,7 +403,8 @@ export function registerPageRoutes(app: App): void {
     const { results } = await c.env.DB.prepare(
       `SELECT p.*,
               snippet(pages_fts,1,'<mark>','</mark>','…',16) AS snippet,
-              bm25(pages_fts,5.0,1.0,3.0) AS rank
+              -- title, body, url, byline, excerpt, summary
+              bm25(pages_fts,5.0,1.0,3.0,3.0,1.5,2.0) AS rank
        FROM pages_fts
        JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id
        WHERE ${where} ${sensitive} ${active}

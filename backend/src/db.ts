@@ -68,6 +68,17 @@ export async function hasLegacyPageColumns(env: Env): Promise<boolean> {
   return !!row;
 }
 
+/**
+ * Whether the search index carries byline/excerpt/summary (migration 0009).
+ * Lets a Worker deploy land before its migration without failing ingest.
+ */
+export async function hasWideFtsColumns(env: Env): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT 1 AS present FROM pragma_table_info('pages_fts') WHERE name='summary'",
+  ).first<{ present: number }>();
+  return !!row;
+}
+
 /** R2 object key for a page's full readable text. */
 export function textKey(userId: string, pageId: string): string {
   return `text/${userId}/${pageId}`;

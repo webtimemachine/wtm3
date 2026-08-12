@@ -34,10 +34,13 @@ const TOOLS = [
     name: "search_history",
     description:
       "Full-text search the user's captured browsing history — page titles, readable text, " +
-      "and URLs. Tokens are prefix-matched and AND-ed ('rust async' finds pages containing " +
-      "both); URL words work as query terms too ('nycmayor', a port like '58627', a path " +
-      "segment). Returns matching pages with id, title, URL, visit time, and a snippet. " +
-      "Use get_page_text with a result id when the snippet isn't enough.",
+      "URLs, author bylines, and the one-line AI summary of each page. Tokens are " +
+      "prefix-matched and AND-ed ('rust async' finds pages containing both). URL words work " +
+      "as query terms ('nycmayor', a port like '58627', a path segment), as do author names " +
+      "and words that appear only in a page's summary — which is often the only description " +
+      "of a shell-titled page like a YouTube or dashboard view. Returns matching pages with " +
+      "id, title, URL, visit time, and a snippet. Use get_page_text with a result id when " +
+      "the snippet isn't enough.",
     inputSchema: {
       type: "object",
       properties: {
@@ -143,7 +146,9 @@ async function searchHistory(env: Env, userId: string, args: Record<string, unkn
   addSearchFilters(conds, binds, { from, to: toEnd, site });
   binds.push(limit);
   const { results } = await env.DB.prepare(
-    `SELECT p.*, snippet(pages_fts, 1, '', '', '…', 16) AS snippet, bm25(pages_fts, 5.0, 1.0, 3.0) AS rank
+    // Weights: title, body, url, byline, excerpt, summary.
+    `SELECT p.*, snippet(pages_fts, 1, '', '', '…', 16) AS snippet,
+            bm25(pages_fts, 5.0, 1.0, 3.0, 3.0, 1.5, 2.0) AS rank
      FROM pages_fts
      JOIN pages p ON p.id = pages_fts.page_id AND p.user_id = pages_fts.user_id
      WHERE ${conds.join(" AND ")} ${sens} ${active}

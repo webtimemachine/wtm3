@@ -1,6 +1,10 @@
 // Content script: passively capture the readable text of the current page and
 // hand it to the background worker. Never blocks or alters the page.
-import { capturePageFromDocument, isCapturableUrl } from "@wtm/shared/capture";
+import {
+  capturePageFromDocument,
+  isCapturableUrl,
+  redactUrlCredentials,
+} from "@wtm/shared/capture";
 
 const CAPTURE_DELAY = 1500; // let late-rendering / SPA content settle
 const POLL_MS = 2500; // detect client-side route changes
@@ -17,7 +21,8 @@ function attempt(): void {
     chrome.runtime.sendMessage({
       type: "capture",
       page: {
-        url,
+        // Credentials are stripped here, on-device, so they are never sent.
+        url: redactUrlCredentials(url),
         title: res.title,
         visitedAt: Date.now(),
         text: res.text,

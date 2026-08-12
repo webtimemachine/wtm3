@@ -1867,14 +1867,86 @@
   // ../shared/src/index.ts
   var MAX_TEXT_CHARS = 2e5;
 
-  // ../shared/src/capture.ts
-  var SKIP_URL_SCHEMES = ["about:", "chrome:", "chrome-extension:", "moz-extension:", "edge:", "view-source:", "devtools:"];
+  // ../shared/src/url.ts
+  var SKIP_URL_SCHEMES = [
+    "about:",
+    "chrome:",
+    "chrome-extension:",
+    "moz-extension:",
+    "edge:",
+    "view-source:",
+    "devtools:"
+  ];
+  var SKIP_HOSTS = ["webtm.io", "api.webtm.io", "webtimemachine.io"];
+  var CREDENTIAL_PARAMS = /* @__PURE__ */ new Set([
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth",
+    "authorization",
+    "code",
+    "id_token",
+    "key",
+    "password",
+    "pwd",
+    "refresh_token",
+    "secret",
+    "session",
+    "session_id",
+    "sessionid",
+    "sig",
+    "signature",
+    "token"
+  ]);
+  var REDACTED = "REDACTED";
+  function hostMatches(hostname, domain) {
+    return hostname === domain || hostname.endsWith("." + domain);
+  }
   function isCapturableUrl(url) {
     if (!url) return false;
     const lower = url.toLowerCase();
     if (!(lower.startsWith("http://") || lower.startsWith("https://"))) return false;
-    return !SKIP_URL_SCHEMES.some((s) => lower.startsWith(s));
+    if (SKIP_URL_SCHEMES.some((s) => lower.startsWith(s))) return false;
+    try {
+      const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+      return !SKIP_HOSTS.some((d) => hostMatches(host, d));
+    } catch {
+      return false;
+    }
   }
+  function redactUrlCredentials(url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return url;
+    }
+    let touched = false;
+    for (const name of [...parsed.searchParams.keys()]) {
+      if (CREDENTIAL_PARAMS.has(name.toLowerCase()) && parsed.searchParams.get(name)) {
+        parsed.searchParams.set(name, REDACTED);
+        touched = true;
+      }
+    }
+    const fragment = parsed.hash.replace(/^#/, "");
+    if (fragment.includes("=")) {
+      const pairs = new URLSearchParams(fragment);
+      let fragmentTouched = false;
+      for (const name of [...pairs.keys()]) {
+        if (CREDENTIAL_PARAMS.has(name.toLowerCase()) && pairs.get(name)) {
+          pairs.set(name, REDACTED);
+          fragmentTouched = true;
+        }
+      }
+      if (fragmentTouched) {
+        parsed.hash = "#" + pairs.toString();
+        touched = true;
+      }
+    }
+    return touched ? parsed.toString() : url;
+  }
+
+  // ../shared/src/capture.ts
   function collapseWhitespace(s) {
     return s.replace(/[ \t\f\v]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   }
@@ -1918,7 +1990,8 @@
       chrome.runtime.sendMessage({
         type: "capture",
         page: {
-          url,
+          // Credentials are stripped here, on-device, so they are never sent.
+          url: redactUrlCredentials(url),
           title: res.title,
           visitedAt: Date.now(),
           text: res.text,

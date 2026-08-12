@@ -33,9 +33,10 @@ const TOOLS = [
   {
     name: "search_history",
     description:
-      "Full-text search the user's captured browsing history (page titles and readable text). " +
-      "Tokens are prefix-matched and AND-ed ('rust async' finds pages containing both). " +
-      "Returns matching pages with id, title, URL, visit time, and a snippet. " +
+      "Full-text search the user's captured browsing history — page titles, readable text, " +
+      "and URLs. Tokens are prefix-matched and AND-ed ('rust async' finds pages containing " +
+      "both); URL words work as query terms too ('nycmayor', a port like '58627', a path " +
+      "segment). Returns matching pages with id, title, URL, visit time, and a snippet. " +
       "Use get_page_text with a result id when the snippet isn't enough.",
     inputSchema: {
       type: "object",
@@ -142,7 +143,7 @@ async function searchHistory(env: Env, userId: string, args: Record<string, unkn
   addSearchFilters(conds, binds, { from, to: toEnd, site });
   binds.push(limit);
   const { results } = await env.DB.prepare(
-    `SELECT p.*, snippet(pages_fts, 1, '', '', '…', 16) AS snippet, bm25(pages_fts, 5.0, 1.0) AS rank
+    `SELECT p.*, snippet(pages_fts, 1, '', '', '…', 16) AS snippet, bm25(pages_fts, 5.0, 1.0, 3.0) AS rank
      FROM pages_fts
      JOIN pages p ON p.id = pages_fts.page_id AND p.user_id = pages_fts.user_id
      WHERE ${conds.join(" AND ")} ${sens} ${active}

@@ -393,7 +393,7 @@ export function registerPageRoutes(app: App): void {
     const { results } = await c.env.DB.prepare(
       `SELECT p.*,
               snippet(pages_fts,1,'<mark>','</mark>','…',16) AS snippet,
-              bm25(pages_fts,5.0,1.0) AS rank
+              bm25(pages_fts,5.0,1.0,3.0) AS rank
        FROM pages_fts
        JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id
        WHERE ${where} ${sensitive} ${active}

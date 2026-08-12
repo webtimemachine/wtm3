@@ -568,6 +568,70 @@ describe("page lifecycle", () => {
       ).status,
     ).toBe(400);
   });
+
+  it("searches URLs, ranking an address match over a body mention", async () => {
+    const auth = await register(`urls-${crypto.randomUUID()}@example.com`);
+    const now = Date.now();
+    const tweet =
+      "https://x.com/NYCMayor/status/2079718073058091261/mediaViewer?currentTweet=207";
+    // Each distinctive token below appears ONLY in a URL, never in the text —
+    // that is the case the UNINDEXED url column used to miss entirely.
+    const pages = [
+      {
+        id: crypto.randomUUID(),
+        url: "http://localhost:58627/dashboard",
+        title: "Dev server",
+        visitedAt: now,
+        text: "Local development preview with hot module reload.",
+      },
+      {
+        id: crypto.randomUUID(),
+        url: tweet,
+        title: "Address match",
+        visitedAt: now,
+        text: "A mayor posted about city budget negotiations.",
+      },
+      {
+        id: crypto.randomUUID(),
+        url: "https://mail.google.com/mail/u/0/#inbox",
+        title: "Body mention",
+        visitedAt: now,
+        text: `Forwarded link ${tweet} please look`,
+      },
+    ];
+    expect(
+      (
+        await jsonRequest(
+          "/sync/push",
+          "POST",
+          { deviceId: "url-device", pages },
+          auth.token,
+        )
+      ).status,
+    ).toBe(200);
+
+    async function titles(q: string) {
+      const response = await request(
+        `/search?${new URLSearchParams({ q })}`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json<{ hits: { title: string }[] }>();
+      return body.hits.map((hit) => hit.title);
+    }
+
+    // A port lives only in the address.
+    expect(await titles("58627")).toEqual(["Dev server"]);
+    // A path segment matches both pages, address first.
+    expect(await titles("mediaViewer")).toEqual([
+      "Address match",
+      "Body mention",
+    ]);
+    // A handle carried in the URL path.
+    expect(await titles("nycmayor")).toContain("Address match");
+    // Text and title search keep working.
+    expect(await titles("hot module reload")).toEqual(["Dev server"]);
+  });
 });
 
 describe("password hashes", () => {

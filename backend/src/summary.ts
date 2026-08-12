@@ -113,10 +113,20 @@ export async function summarizePages(
     const sensitive = adult ? 1 : 0;
     // Stale-write guard: only apply if the page still holds the content we analyzed
     // (a newer recapture changes content_hash).
-    await env.DB.prepare(
+    const written = await env.DB.prepare(
       "UPDATE pages SET summary=?1, summary_status=?2, sensitive=?3 WHERE id=?4 AND user_id=?5 AND content_hash=?6",
     )
       .bind(summary, status, sensitive, p.id, userId, p.contentHash)
       .run();
+    // Mirror the summary into the search index. Shell-titled pages (YouTube,
+    // dashboards) are often findable only by what the summary says about them.
+    // Guarded by the same stale-write check: skip if the page moved on.
+    if (summary && written.meta.changes > 0) {
+      await env.DB.prepare(
+        "UPDATE pages_fts SET summary=?1 WHERE page_id=?2 AND user_id=?3",
+      )
+        .bind(summary, p.id, userId)
+        .run();
+    }
   }
 }

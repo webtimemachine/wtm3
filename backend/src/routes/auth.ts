@@ -1,4 +1,4 @@
-import type { AuthResponse } from "@wtm/shared";
+import type { AuthResponse, ExtensionAuthScope } from "@wtm/shared";
 import { pkceChallenge } from "@wtm/shared/auth";
 import type { Hono } from "hono";
 import { normalizeEmail, revokeUserOAuthGrants, sendPasswordResetEmail, userInfo } from "../account";
@@ -53,13 +53,19 @@ function requestId(value: unknown): string {
     : "";
 }
 
+function requestedScope(value: unknown): ExtensionAuthScope | null {
+  if (value === undefined) return "capture";
+  return value === "capture" || value === "assist" ? value : null;
+}
+
 export function registerAuthRoutes(app: App): void {
   app.post("/auth/extension/start", async (c) => {
     const body = await c.req.json().catch(() => null);
     const codeChallenge =
       typeof body?.codeChallenge === "string" ? body.codeChallenge : "";
     const client = extensionClient(body?.client);
-    if (!client || !/^[A-Za-z0-9_-]{43}$/.test(codeChallenge)) {
+    const scope = requestedScope(body?.scope);
+    if (!client || !scope || !/^[A-Za-z0-9_-]{43}$/.test(codeChallenge)) {
       return c.json(
         { error: "invalid_request", message: "A valid extension client and PKCE challenge are required." },
         400,
@@ -72,10 +78,10 @@ export function registerAuthRoutes(app: App): void {
     const expiresAt = createdAt + EXTENSION_AUTH_TTL_MS;
     await c.env.DB.prepare(
       `INSERT INTO extension_authorizations
-       (request_hash,code_challenge,client,created_at,expires_at)
-       VALUES (?1,?2,?3,?4,?5)`,
+       (request_hash,code_challenge,client,requested_scope,created_at,expires_at)
+       VALUES (?1,?2,?3,?4,?5,?6)`,
     )
-      .bind(requestHash, codeChallenge, client, createdAt, expiresAt)
+      .bind(requestHash, codeChallenge, client, scope, createdAt, expiresAt)
       .run();
     return c.json({ requestId: rawRequestId, expiresAt }, 201);
   });
@@ -88,16 +94,22 @@ export function registerAuthRoutes(app: App): void {
     }
     const requestHash = await hashOpaqueToken(rawRequestId);
     const row = await c.env.DB.prepare(
-      `SELECT client,user_id,expires_at FROM extension_authorizations
+      `SELECT client,requested_scope,user_id,expires_at FROM extension_authorizations
        WHERE request_hash=?1 AND expires_at>?2`,
     )
       .bind(requestHash, Date.now())
-      .first<{ client: string; user_id: string | null; expires_at: number }>();
+      .first<{
+        client: string;
+        requested_scope: ExtensionAuthScope;
+        user_id: string | null;
+        expires_at: number;
+      }>();
     if (!row) {
       return c.json({ error: "invalid_request", message: "Connection request expired or was already used." }, 404);
     }
     return c.json({
       client: row.client,
+      scope: row.requested_scope,
       expiresAt: row.expires_at,
       status: row.user_id ? "approved" : "pending",
     });
@@ -135,13 +147,14 @@ export function registerAuthRoutes(app: App): void {
 
     const requestHash = await hashOpaqueToken(rawRequestId);
     const row = await c.env.DB.prepare(
-      `SELECT code_challenge,client,user_id FROM extension_authorizations
+      `SELECT code_challenge,client,requested_scope,user_id FROM extension_authorizations
        WHERE request_hash=?1 AND expires_at>?2`,
     )
       .bind(requestHash, Date.now())
       .first<{
         code_challenge: string;
         client: string;
+        requested_scope: ExtensionAuthScope;
         user_id: string | null;
       }>();
     if (!row) {
@@ -155,19 +168,31 @@ export function registerAuthRoutes(app: App): void {
     const consumed = await c.env.DB.prepare(
       `DELETE FROM extension_authorizations
        WHERE request_hash=?1 AND user_id=?2
-       RETURNING client`,
+       RETURNING client,requested_scope`,
     )
       .bind(requestHash, row.user_id)
-      .first<{ client: string }>();
+      .first<{ client: string; requested_scope: ExtensionAuthScope }>();
     if (!consumed) {
       return c.json({ error: "invalid_request", message: "Connection request was already used." }, 410);
     }
+    const sessionScope = requestedScope(consumed.requested_scope);
+    if (!sessionScope) {
+      return c.json({ error: "invalid_request", message: "Invalid extension permission." }, 400);
+    }
 
-    const session = await prepareSession(row.user_id, consumed.client, "capture");
+    const session = await prepareSession(
+      row.user_id,
+      consumed.client,
+      sessionScope,
+    );
     await insertSessionStatement(c.env.DB, session).run();
     const info = await userInfo(c.env, row.user_id);
     if (!info) return c.json({ error: "not_found", message: "User not found." }, 404);
-    return c.json({ status: "connected", ...authResponse(session.token, info) });
+    return c.json({
+      status: "connected",
+      scope: sessionScope,
+      ...authResponse(session.token, info),
+    });
   });
 
   app.post("/auth/register", async (c) => {

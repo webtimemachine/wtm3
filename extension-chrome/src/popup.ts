@@ -6,6 +6,8 @@ import { getQueueCount, getState } from "./storage";
 
 const app = document.getElementById("app") as HTMLDivElement;
 const DASHBOARD_URL = "https://webtm.io/";
+const SEARCH_URL = "https://webtm.io/search";
+const NATIVE_APP_ID = "com.ttt246llc.wtm";
 
 function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -72,6 +74,22 @@ function extensionClientName():
 
 type PendingConnection = NonNullable<ExtState["pendingConnection"]>;
 
+async function notifyNative(
+  message: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> {
+  if (PLATFORM !== "safari-ios") return null;
+  try {
+    return (await chrome.runtime.sendNativeMessage(
+      NATIVE_APP_ID,
+      message,
+    )) as Record<string, unknown>;
+  } catch {
+    // The containing app may not have launched yet. The extension state still
+    // keeps the feature usable; reopening the popup retries configuration.
+    return null;
+  }
+}
+
 function connectionUrl(pending: PendingConnection): string {
   const url = new URL(DASHBOARD_URL);
   url.searchParams.set("connect", pending.requestId);
@@ -116,6 +134,9 @@ async function renderAuth(errorMessage?: string): Promise<void> {
       codeVerifier: state.pendingConnection.codeVerifier,
     });
     if (response.status === "connected") {
+      if (response.scope !== "capture") {
+        throw new Error("The server returned the wrong extension permission.");
+      }
       await mutate(
         {
           baseUrl: state.pendingConnection.baseUrl,
@@ -189,12 +210,14 @@ function renderConnectStart(state: ExtState, errorMessage?: string): void {
       const response = await new WtmClient({ baseUrl }).startExtensionAuth({
         codeChallenge: challenge,
         client: extensionClientName(),
+        scope: "capture",
       });
       const pending: PendingConnection = {
         requestId: response.requestId,
         codeVerifier: verifier,
         expiresAt: response.expiresAt,
         baseUrl,
+        scope: "capture",
       };
       await mutate({ baseUrl, pendingConnection: pending });
       renderPending(pending);
@@ -297,13 +320,19 @@ async function renderStatus(container: HTMLElement): Promise<void> {
 }
 
 async function renderApp(): Promise<void> {
-  const state = await getState();
+  let state = await getState();
   if (state.token && state.user && state.tokenScope !== "capture") {
     await mutate({ token: null, tokenScope: null, user: null });
     await renderAuth();
     return;
   }
   if (!state.token || !state.user) {
+    await renderAuth();
+    return;
+  }
+
+  state = await pollAssistConnection(state);
+  if (!state.user) {
     await renderAuth();
     return;
   }
@@ -332,12 +361,24 @@ async function renderApp(): Promise<void> {
     } catch {
       // Local disconnect still works offline. The server token expires later.
     }
+    if (state.assistToken) {
+      try {
+        await new WtmClient({ baseUrl: state.baseUrl, token: state.assistToken }).logout();
+      } catch {
+        // Local disconnect remains available offline.
+      }
+    }
+    await notifyNative({ type: "disableSearchAssist" });
     try {
       await mutate({
         token: null,
         tokenScope: null,
+        assistToken: null,
+        assistEnabled: false,
+        lastAssistError: null,
         user: null,
         pendingConnection: null,
+        pendingAssistConnection: null,
       });
       await renderAuth();
     } catch {
@@ -369,21 +410,249 @@ async function renderApp(): Promise<void> {
     .then(() => renderStatus(status));
 
   app.append(
-    h("div", { class: "section search-launcher" }, [
-      h(
-        "a",
-        {
-          class: "primary-action",
-          href: DASHBOARD_URL,
-          target: "_blank",
-          rel: "noreferrer",
-        },
-        ["Search your history"],
-      ),
-      h("span", { class: "hint" }, ["Opens webtm.io"]),
-    ]),
+    PLATFORM === "firefox-android"
+      ? h("div", { class: "section search-launcher" }, [
+          h("a", {
+            class: "primary-action",
+            href: DASHBOARD_URL,
+            target: "_blank",
+            rel: "noreferrer",
+          }, ["Search your history"]),
+          h("span", { class: "hint" }, ["Opens webtm.io"]),
+        ])
+      : buildSearchAssist(state),
     buildDiagnostics(),
   );
+}
+
+async function pollAssistConnection(state: ExtState): Promise<ExtState> {
+  const pending = state.pendingAssistConnection;
+  if (!pending) {
+    if (state.assistEnabled && state.assistToken) {
+      const native = await notifyNative({
+        type: "configureSearchAssist",
+        token: state.assistToken,
+        baseUrl: state.baseUrl,
+        force: false,
+      });
+      if (native?.error === "disabled_in_app") {
+        try {
+          await new WtmClient({ baseUrl: state.baseUrl, token: state.assistToken }).logout();
+        } catch {
+          // Clear locally even if revocation is offline.
+        }
+        return mutate({
+          assistToken: null,
+          assistEnabled: false,
+          searchRouterEnabled: false,
+          lastAssistError: "Search Assist was disabled from the iOS app.",
+        });
+      }
+    }
+    return state;
+  }
+  if (pending.expiresAt <= Date.now()) {
+    return mutate({ pendingAssistConnection: null });
+  }
+  try {
+    const response = await new WtmClient({ baseUrl: pending.baseUrl })
+      .exchangeExtensionAuth({
+        requestId: pending.requestId,
+        codeVerifier: pending.codeVerifier,
+      });
+    if (response.status !== "connected") return state;
+    if (response.scope !== "assist") {
+      return mutate({
+        pendingAssistConnection: null,
+        lastAssistError: "The server returned the wrong Search Assist permission.",
+      });
+    }
+    if (!state.user || response.user.id !== state.user.id) {
+      try {
+        await new WtmClient({ baseUrl: pending.baseUrl, token: response.token }).logout();
+      } catch {
+        // The rejected grant will expire even if immediate revocation is offline.
+      }
+      return mutate({
+        pendingAssistConnection: null,
+        lastAssistError: "Search Assist was approved for a different account. Sign in to the same account on webtm.io and try again.",
+      });
+    }
+    const next = await mutate({
+      assistToken: response.token,
+      assistEnabled: true,
+      pendingAssistConnection: null,
+      lastAssistError: null,
+    });
+    await notifyNative({
+      type: "configureSearchAssist",
+      token: response.token,
+      baseUrl: pending.baseUrl,
+      force: true,
+    });
+    return next;
+  } catch (caught) {
+    if (caught instanceof WtmApiError && (caught.status === 404 || caught.status === 410)) {
+      return mutate({ pendingAssistConnection: null });
+    }
+    return state;
+  }
+}
+
+function buildSearchAssist(state: ExtState): HTMLElement {
+  const section = h("div", { class: "section search-assist" });
+  section.append(
+    h("div", { class: "row section-heading" }, [
+      h("b", {}, ["Search Assist"]),
+      h("span", { class: `assist-state ${state.assistEnabled ? "on" : ""}` }, [
+        state.assistEnabled ? "On" : "Off",
+      ]),
+    ]),
+  );
+
+  const pending = state.pendingAssistConnection;
+  if (pending) {
+    const check = h("button", { type: "button" }, ["Check approval"]) as HTMLButtonElement;
+    check.addEventListener("click", () => {
+      check.disabled = true;
+      void renderApp();
+    });
+    const cancel = h("button", { type: "button", class: "secondary" }, ["Cancel"]) as HTMLButtonElement;
+    cancel.addEventListener("click", async () => {
+      await mutate({ pendingAssistConnection: null });
+      await renderApp();
+    });
+    section.append(
+      h("p", { class: "hint" }, ["Approve read-only history suggestions on webtm.io."]),
+      h("a", { class: "primary-action", href: connectionUrl(pending), target: "_blank", rel: "noreferrer" }, ["Open approval"]),
+      h("div", { class: "row" }, [check, cancel]),
+    );
+    return section;
+  }
+
+  if (!state.assistEnabled || !state.assistToken) {
+    const enable = h("button", { type: "button" }, ["Enable Search Assist"]) as HTMLButtonElement;
+    const message = h("div", { class: "error", role: "alert" });
+    enable.addEventListener("click", async () => {
+      enable.disabled = true;
+      message.textContent = "";
+      try {
+        const { verifier, challenge } = await createPkcePair();
+        const response = await new WtmClient({ baseUrl: state.baseUrl }).startExtensionAuth({
+          codeChallenge: challenge,
+          client: extensionClientName(),
+          scope: "assist",
+        });
+        const next = {
+          requestId: response.requestId,
+          codeVerifier: verifier,
+          expiresAt: response.expiresAt,
+          baseUrl: state.baseUrl,
+          scope: "assist" as const,
+        };
+        await mutate({ pendingAssistConnection: next, lastAssistError: null });
+        await chrome.tabs.create({ url: connectionUrl(next) });
+        await renderApp();
+      } catch (caught) {
+        message.textContent = caught instanceof WtmApiError ? caught.message : "Could not start Search Assist approval.";
+        enable.disabled = false;
+      }
+    });
+    section.append(
+      h("p", { class: "hint" }, [
+        PLATFORM === "safari-ios"
+          ? "Find saved pages in this popup and iOS Spotlight. Safari controls address-bar ranking."
+          : "Type wtm and a space in Chrome’s address bar to search your history.",
+      ]),
+      enable,
+      message,
+      state.lastAssistError
+        ? h("div", { class: "error", role: "alert" }, [state.lastAssistError])
+        : "",
+    );
+    return section;
+  }
+
+  const search = h("input", {
+    type: "search",
+    placeholder: "Search saved pages…",
+    autocomplete: "off",
+  }) as HTMLInputElement;
+  const results = h("div", { class: "assist-results" });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let generation = 0;
+  search.addEventListener("input", () => {
+    if (timer) clearTimeout(timer);
+    const query = search.value.trim();
+    const current = ++generation;
+    if (query.length < 2) {
+      results.replaceChildren();
+      return;
+    }
+    timer = setTimeout(async () => {
+      try {
+        const response = await new WtmClient({ baseUrl: state.baseUrl, token: state.assistToken }).suggest(query, 6);
+        if (current !== generation) return;
+        results.replaceChildren(
+          ...response.suggestions.map((item) =>
+            h("a", { class: "assist-result", href: item.url, target: "_blank", rel: "noreferrer" }, [
+              h("span", { class: "assist-title" }, [item.title || item.url]),
+              h("span", { class: "hint" }, [new URL(item.url).hostname]),
+            ]),
+          ),
+        );
+      } catch {
+        if (current === generation) results.replaceChildren(h("span", { class: "error" }, ["Search unavailable."]));
+      }
+    }, 140);
+  });
+
+  const openFull = h("a", {
+    class: "secondary-action",
+    href: SEARCH_URL,
+    target: "_blank",
+    rel: "noreferrer",
+  }, ["Full history search"]);
+  const disable = h("button", { type: "button", class: "link danger" }, ["Disable"]) as HTMLButtonElement;
+  disable.addEventListener("click", async () => {
+    disable.disabled = true;
+    try {
+      await new WtmClient({ baseUrl: state.baseUrl, token: state.assistToken }).logout();
+    } catch {
+      // Always permit local disable.
+    }
+    await notifyNative({ type: "disableSearchAssist" });
+    await mutate({
+      assistToken: null,
+      assistEnabled: false,
+      lastAssistError: null,
+      pendingAssistConnection: null,
+      searchRouterEnabled: false,
+    });
+    await renderApp();
+  });
+
+  section.append(search, results, h("div", { class: "row assist-actions" }, [openFull, disable]));
+
+  if (PLATFORM === "safari-ios") {
+    const router = h("input", { type: "checkbox" }) as HTMLInputElement;
+    router.checked = state.searchRouterEnabled;
+    router.addEventListener("change", async () => {
+      const wanted = router.checked;
+      try {
+        await mutate({ searchRouterEnabled: wanted });
+      } catch {
+        router.checked = !wanted;
+      }
+    });
+    section.append(
+      h("label", { class: "router-toggle" }, [router, h("span", {}, [
+        "Route explicit ", h("code", {}, ["wtm "]), " or ", h("code", {}, ["!w "]), " searches",
+      ])]),
+      h("p", { class: "hint" }, ["Ordinary Safari searches and autocomplete stay unchanged."]),
+    );
+  }
+  return section;
 }
 
 function buildDiagnostics(): HTMLElement {

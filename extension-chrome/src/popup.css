@@ -76,3 +76,26 @@ button:disabled { opacity: .5; cursor: default; }
   background: var(--accent); color: var(--accent-fg);
   font-weight: 600; text-align: center; text-decoration: none;
 }
+
+.section-heading { justify-content: space-between; }
+.assist-state {
+  color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase;
+}
+.assist-state.on { color: #27a36a; }
+.search-assist input[type="search"] {
+  width: 100%; margin-top: 8px; padding: 9px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: #0e1426; color: var(--fg); font-size: 13px;
+}
+.assist-results { display: flex; flex-direction: column; margin-top: 4px; }
+.assist-result {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 2px;
+  border-bottom: 1px solid var(--line); color: inherit; text-decoration: none;
+}
+.assist-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assist-actions { justify-content: space-between; margin-top: 8px; }
+.secondary-action { color: var(--accent); font-size: 12px; }
+.router-toggle {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 12px;
+  font-size: 12px; line-height: 1.35;
+}
+.router-toggle input { margin-top: 1px; }

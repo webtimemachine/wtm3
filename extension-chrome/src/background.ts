@@ -21,6 +21,8 @@ const BATCH = 50;
 // Cap the JSON payload of one push. 50 text-heavy mobile captures can exceed
 // several MB, which flaky mobile networks reject; smaller pushes land.
 const BATCH_SOFT_BYTES = 1_000_000;
+const SEARCH_URL = "https://webtm.io/search";
+const ROUTER_RULE_IDS = [9101, 9102, 9103];
 
 function takeBatch(queue: CapturedPage[]): CapturedPage[] {
   const batch: CapturedPage[] = [];
@@ -38,9 +40,11 @@ let flushing = false;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
+  void configureSearchRouter();
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
+  void configureSearchRouter();
 });
 
 chrome.alarms.onAlarm.addListener((a) => {
@@ -63,7 +67,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return sendResponse({ ok: true });
       }
       if (msg?.type === "setState" && msg.patch && typeof msg.patch === "object") {
+        const changesRouter = Object.hasOwn(msg.patch, "searchRouterEnabled");
+        const previousRouter = changesRouter
+          ? (await getState()).searchRouterEnabled
+          : null;
         const state = await applyStatePatch(msg.patch as Partial<ExtState>);
+        if (
+          Object.hasOwn(msg.patch, "assistToken") ||
+          Object.hasOwn(msg.patch, "assistEnabled")
+        ) {
+          resetSuggestionCache();
+        }
+        if (changesRouter) {
+          try {
+            await configureSearchRouter(state);
+          } catch (error) {
+            await applyStatePatch({ searchRouterEnabled: previousRouter ?? false });
+            throw error;
+          }
+        }
         if (msg.thenFlush) void flush();
         return sendResponse({ ok: true, state });
       }
@@ -78,6 +100,164 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })();
   return true; // keep the message channel open for the async response
 });
+
+// ---------------------------------------------------------------------------
+// Desktop Chrome omnibox. Safari does not expose this API, so the same shared
+// background bundle simply skips registration there.
+// ---------------------------------------------------------------------------
+
+const omnibox = (chrome as typeof chrome & { omnibox?: typeof chrome.omnibox }).omnibox;
+let suggestionGeneration = 0;
+let suggestionTimer: ReturnType<typeof setTimeout> | null = null;
+let suggestionAbort: AbortController | null = null;
+const suggestionCache = new Map<string, chrome.omnibox.SuggestResult[]>();
+
+function resetSuggestionCache(): void {
+  suggestionGeneration++;
+  if (suggestionTimer) clearTimeout(suggestionTimer);
+  suggestionTimer = null;
+  suggestionAbort?.abort();
+  suggestionAbort = null;
+  suggestionCache.clear();
+}
+
+if (PLATFORM === "chrome" && omnibox) {
+  omnibox.setDefaultSuggestion({
+    description: "Search your Web Time Machine history",
+  });
+  omnibox.onInputChanged.addListener((text, suggest) => {
+    const generation = ++suggestionGeneration;
+    if (suggestionTimer) clearTimeout(suggestionTimer);
+    suggestionAbort?.abort();
+    const query = text.trim();
+    if (query.length < 2) {
+      suggest([]);
+      return;
+    }
+    const cached = suggestionCache.get(query.toLowerCase());
+    if (cached) {
+      suggest(cached);
+      return;
+    }
+    suggestionTimer = setTimeout(() => {
+      suggestionTimer = null;
+      const controller = new AbortController();
+      suggestionAbort = controller;
+      void getOmniboxSuggestions(query, controller.signal).then((results) => {
+        if (generation !== suggestionGeneration) return;
+        suggestionCache.set(query.toLowerCase(), results);
+        if (suggestionCache.size > 40) {
+          suggestionCache.delete(suggestionCache.keys().next().value ?? "");
+        }
+        suggest(results);
+      });
+    }, 90);
+  });
+  omnibox.onInputEntered.addListener((text, disposition) => {
+    void openOmniboxResult(text, disposition);
+  });
+}
+
+function escapeOmnibox(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function getOmniboxSuggestions(
+  query: string,
+  signal: AbortSignal,
+): Promise<chrome.omnibox.SuggestResult[]> {
+  const state = await getState();
+  if (!state.assistEnabled || !state.assistToken) {
+    omnibox?.setDefaultSuggestion({
+      description: "Enable Search Assist from the Web Time Machine extension",
+    });
+    return [];
+  }
+  try {
+    const response = await new WtmClient({
+      baseUrl: state.baseUrl,
+      token: state.assistToken,
+    }).suggest(query, 6, signal);
+    omnibox?.setDefaultSuggestion({
+      description: `Search Web Time Machine for <match>${escapeOmnibox(query)}</match>`,
+    });
+    return response.suggestions.map((item) => ({
+      content: item.url,
+      description:
+        `<match>${escapeOmnibox(item.title || item.url)}</match> ` +
+        `<dim>${escapeOmnibox(new URL(item.url).hostname)}</dim>`,
+      deletable: false,
+    }));
+  } catch (error) {
+    if (error instanceof WtmApiError && error.status === 401) {
+      await applyStatePatch({
+        assistToken: null,
+        assistEnabled: false,
+        lastAssistError: "Search Assist authorization expired. Enable it again to reconnect.",
+      });
+      resetSuggestionCache();
+    }
+    return [];
+  }
+}
+
+async function openOmniboxResult(
+  text: string,
+  disposition: chrome.omnibox.OnInputEnteredDisposition,
+): Promise<void> {
+  let url = text.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    const search = new URL(SEARCH_URL);
+    search.searchParams.set("q", url);
+    url = search.toString();
+  }
+  if (disposition === "newForegroundTab") {
+    await chrome.tabs.create({ url, active: true });
+  } else if (disposition === "newBackgroundTab") {
+    await chrome.tabs.create({ url, active: false });
+  } else {
+    await chrome.tabs.update({ url });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// iOS submitted-query router. It cannot replace Safari autocomplete or add a
+// native engine; it only redirects explicit `wtm ` / `!w ` submissions.
+// ---------------------------------------------------------------------------
+
+async function configureSearchRouter(existing?: ExtState): Promise<void> {
+  if (PLATFORM !== "safari-ios" || !chrome.declarativeNetRequest) return;
+  const state = existing ?? (await getState());
+  const rules: chrome.declarativeNetRequest.Rule[] = state.searchRouterEnabled
+    ? [
+        routerRule(9101, "^https?://(?:www\\.)?google\\.[^/]+/search\\?(?:[^#]*&)?q=(?:wtm(?:%20|\\+)|(?:%21|!)w(?:%20|\\+))([^&#]+)(?:&.*)?$"),
+        routerRule(9102, "^https?://(?:www\\.)?bing\\.com/search\\?(?:[^#]*&)?q=(?:wtm(?:%20|\\+)|(?:%21|!)w(?:%20|\\+))([^&#]+)(?:&.*)?$"),
+        routerRule(9103, "^https?://(?:www\\.)?duckduckgo\\.com/\\?(?:[^#]*&)?q=(?:wtm(?:%20|\\+)|(?:%21|!)w(?:%20|\\+))([^&#]+)(?:&.*)?$"),
+      ]
+    : [];
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: ROUTER_RULE_IDS,
+    addRules: rules,
+  });
+}
+
+function routerRule(id: number, regexFilter: string): chrome.declarativeNetRequest.Rule {
+  return {
+    id,
+    priority: 1,
+    action: {
+      type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+      redirect: { regexSubstitution: `${SEARCH_URL}?q=\\1` },
+    },
+    condition: {
+      regexFilter,
+      resourceTypes: [chrome.declarativeNetRequest.ResourceType.MAIN_FRAME],
+    },
+  };
+}
 
 function scheduleFlush(delay = 2500): void {
   if (flushTimer) clearTimeout(flushTimer);

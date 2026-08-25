@@ -41,6 +41,8 @@ GET    /nodes
 PATCH  /nodes/:id
 POST   /sync/push
 GET    /search?q=&limit=&offset=&from=&to=&site=&sort=
+GET    /suggest?q=&limit=
+GET    /index-snapshot?limit=
 GET    /pages?limit=&before=<visitedAt>
 GET    /pages/:id
 GET    /pages/:id/text
@@ -50,6 +52,10 @@ POST   /mcp
 
 There is deliberately no `/sync/pull`, page mutation cursor, tombstone, public
 beta-signup endpoint, or diagnostic-report endpoint in v4.
+
+`/suggest` and `/index-snapshot` accept full website sessions or separately
+approved `assist` sessions. They always exclude sensitive pages and return only
+titles, URLs, ids, and visit times—never captured text or snippets.
 
 ## Local development
 
@@ -94,3 +100,7 @@ applies the remaining destructive migration 0007:
 pnpm --filter @wtm/backend exec wrangler d1 migrations apply wtm --remote
 pnpm --filter @wtm/backend deploy
 ```
+
+For the Search Assist rollout, apply additive migration
+`0010_search_assist.sql` before deploying the Worker that writes
+`requested_scope` during extension authorization.

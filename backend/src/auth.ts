@@ -89,7 +89,7 @@ export interface NewSession {
   token: string;
   tokenHash: string;
   client: string;
-  scope: "full" | "capture";
+  scope: "full" | "capture" | "assist";
   createdAt: number;
   expiresAt: number;
 }
@@ -101,7 +101,7 @@ function normalizeClient(client: unknown): string {
 export async function prepareSession(
   userId: string,
   client?: unknown,
-  scope: "full" | "capture" = "full",
+  scope: "full" | "capture" | "assist" = "full",
 ): Promise<NewSession> {
   const token = randomOpaqueToken("wtm");
   const createdAt = Date.now();
@@ -138,7 +138,7 @@ export interface SessionClaims {
   sessionId: string;
   userId: string;
   email: string;
-  scope: "full" | "capture";
+  scope: "full" | "capture" | "assist";
 }
 
 /** Resolve one opaque bearer token and occasionally refresh its activity time. */
@@ -157,10 +157,13 @@ export async function verifySession(db: D1Database, token: string): Promise<Sess
       session_id: string;
       user_id: string;
       last_seen_at: number;
-      scope: "full" | "capture";
+      scope: string;
       email: string;
     }>();
   if (!row) return null;
+  if (row.scope !== "full" && row.scope !== "capture" && row.scope !== "assist") {
+    return null;
+  }
   if (now - row.last_seen_at >= LAST_SEEN_WRITE_INTERVAL_MS) {
     await db.prepare("UPDATE sessions SET last_seen_at = ?1 WHERE id = ?2").bind(now, row.session_id).run();
   }

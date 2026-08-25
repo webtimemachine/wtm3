@@ -22,5 +22,5 @@ export interface Vars {
   userId: string;
   email: string;
   sessionId: string;
-  sessionScope: "full" | "capture";
+  sessionScope: "full" | "capture" | "assist";
 }

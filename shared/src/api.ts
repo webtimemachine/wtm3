@@ -21,6 +21,8 @@ import {
   type RegisterRequest,
   type SearchResponse,
   type SearchOptions,
+  type SuggestResponse,
+  type IndexSnapshotResponse,
   type SettingsUpdate,
   type SyncPushRequest,
   type SyncPushResponse,
@@ -55,7 +57,12 @@ export class WtmClient {
     this.f = opts.fetchImpl ?? fetch.bind(globalThis);
   }
 
-  private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async req<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -63,6 +70,7 @@ export class WtmClient {
     const res = await this.f(`${this.baseUrl}${path}`, {
       method,
       headers,
+      signal,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
@@ -149,6 +157,14 @@ export class WtmClient {
     if (opts.site?.trim()) p.set("site", opts.site.trim());
     if (opts.sort) p.set("sort", opts.sort);
     return this.req("GET", `${Routes.search}?${p.toString()}`);
+  }
+  suggest(query: string, limit = 6, signal?: AbortSignal): Promise<SuggestResponse> {
+    const p = new URLSearchParams({ q: query, limit: String(limit) });
+    return this.req("GET", `${Routes.suggest}?${p.toString()}`, undefined, signal);
+  }
+  indexSnapshot(limit = 2000): Promise<IndexSnapshotResponse> {
+    const p = new URLSearchParams({ limit: String(limit) });
+    return this.req("GET", `${Routes.indexSnapshot}?${p.toString()}`);
   }
   recent(opts: { limit?: number; before?: number } = {}): Promise<RecentResponse> {
     const p = new URLSearchParams();

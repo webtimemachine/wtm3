@@ -47,7 +47,9 @@ export function Dashboard({
     () => clientFor(session.baseUrl, session.token),
     [session.baseUrl, session.token],
   );
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(
+    () => new URLSearchParams(window.location.search).get("q") ?? "",
+  );
   const [timePreset, setTimePreset] = useState<SearchTimePreset>("any");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -148,6 +150,14 @@ export function Dashboard({
   }, [query, runSearch, loadRecent]);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    const value = query.trim();
+    if (value) url.searchParams.set("q", value);
+    else url.searchParams.delete("q");
+    window.history.replaceState(null, "", url);
+  }, [query]);
+
+  useEffect(() => {
     const element = sentinelRef.current;
     if (!element || query.trim() || cursor == null) return;
     const observer = new IntersectionObserver(
@@ -224,9 +234,10 @@ export function Dashboard({
         </button>
       </header>
 
-      <div className="searchbar">
+      <form className="searchbar" action="/search" method="get">
         <input
           type="search"
+          name="q"
           autoFocus
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -239,7 +250,7 @@ export function Dashboard({
               : ""
             : "Recent"}
         </span>
-      </div>
+      </form>
 
       <SearchFilters
         timePreset={timePreset}

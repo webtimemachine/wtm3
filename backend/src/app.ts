@@ -6,6 +6,7 @@ import { authorizeForm, authorizeSubmit } from "./oauth";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerNodeRoutes } from "./routes/nodes";
 import { registerPageRoutes } from "./routes/pages";
+import { registerAssistRoutes } from "./routes/assist";
 import { registerSettingsRoutes } from "./routes/settings";
 
 export const app = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -41,6 +42,8 @@ const protectedPaths = [
   "/nodes/*",
   "/sync/*",
   "/search",
+  "/suggest",
+  "/index-snapshot",
   "/pages",
   "/pages/*",
 ];
@@ -68,8 +71,23 @@ for (const path of protectedPaths) {
         403,
       );
     }
+    if (session.scope === "assist" && !assistSessionAllowed(c.req.method, c.req.path)) {
+      return c.json(
+        { error: "insufficient_scope", message: "This Search Assist token can only read history suggestions." },
+        403,
+      );
+    }
     await next();
   });
+}
+
+function assistSessionAllowed(method: string, path: string): boolean {
+  return (
+    (method === "GET" && path === "/auth/me") ||
+    (method === "POST" && path === "/auth/logout") ||
+    (method === "GET" && path === "/suggest") ||
+    (method === "GET" && path === "/index-snapshot")
+  );
 }
 
 function captureSessionAllowed(method: string, path: string): boolean {
@@ -85,6 +103,7 @@ registerAuthRoutes(app);
 registerSettingsRoutes(app);
 registerNodeRoutes(app);
 registerPageRoutes(app);
+registerAssistRoutes(app);
 
 app.get("/oauth/authorize", authorizeForm);
 app.post("/oauth/authorize", authorizeSubmit);

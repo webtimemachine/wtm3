@@ -1,7 +1,7 @@
 {
   "name": "webtimemachine",
   "private": true,
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "Web Time Machine v4 — passively capture, sync, search, summarize, and recall your browsing history across devices.",
   "packageManager": "pnpm@10.32.1",
   "engines": {

@@ -92,8 +92,9 @@ export function ExtensionConnect({
             <p className="connect-check" aria-hidden="true">✓</p>
             <p className="card-title">Browser connected</p>
             <p className="card-copy">
-              Return to {request.client} and reopen its popup. It can now upload
-              captured pages, but it cannot search or change your account.
+              Return to {request.client} and reopen its popup. {request.scope === "assist"
+                ? "Search Assist can now suggest saved pages without reading their captured text."
+                : "It can now upload captured pages, but it cannot search or change your account."}
             </p>
             <a className="button-link" href="/">
               Continue to your history
@@ -112,19 +113,21 @@ export function ExtensionConnect({
           </>
         ) : (
           <>
-            <p className="card-title">Connect {request.client}?</p>
+            <p className="card-title">
+              {request.scope === "assist" ? "Enable Search Assist" : `Connect ${request.client}?`}
+            </p>
             <p className="card-copy">
-              Signed in as <strong>{session.user.email}</strong>. The extension
-              will receive a separate token that can only identify this account
-              and upload captured pages.
+              Signed in as <strong>{session.user.email}</strong>. The extension will
+              receive a separate, revocable token.
             </p>
             <div className="connection-scope">
-              It cannot search your history, read saved pages, or change account
-              settings.
+              {request.scope === "assist"
+                ? "It can retrieve titles, URLs, and visit times for suggestions and iOS Spotlight. It cannot read captured page text, upload pages, delete history, or change account settings."
+                : "It can only identify this account and upload captured pages. It cannot search your history, read saved pages, or change account settings."}
             </div>
             <div className="row">
               <button type="button" disabled={busy} onClick={() => void approve()}>
-                Allow connection
+                {request.scope === "assist" ? "Allow Search Assist" : "Allow connection"}
               </button>
               <a className="button-link secondary" href="/">
                 Cancel

@@ -71,6 +71,11 @@ describe("v4 schema", () => {
     expect(names).not.toContain("user_seq");
     expect(names).not.toContain("beta_signups");
     expect(names).not.toContain("diagnostic_reports");
+
+    const authorizations = await env.DB.prepare(
+      "PRAGMA table_info(extension_authorizations)",
+    ).all<{ name: string }>();
+    expect(authorizations.results.map((row) => row.name)).toContain("requested_scope");
   });
 
   it("accepts pushes before the destructive cleanup migration", async () => {
@@ -267,6 +272,7 @@ describe("extension authorization", () => {
     });
     expect(await before.json()).toMatchObject({
       client: "Safari extension",
+      scope: "capture",
       status: "pending",
     });
     const pending = await jsonRequest(
@@ -320,6 +326,7 @@ describe("extension authorization", () => {
       token: string;
     }>();
     expect(extension.status).toBe("connected");
+    expect((extension as { scope?: string }).scope).toBe("capture");
 
     const tokenHash = await hashOpaqueToken(extension.token);
     expect(
@@ -357,6 +364,13 @@ describe("extension authorization", () => {
     ).toBe(403);
     expect(
       (
+        await request("/suggest?q=private", {
+          headers: { Authorization: `Bearer ${extension.token}` },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
         await jsonRequest(
           "/auth/logout-everywhere",
           "POST",
@@ -370,6 +384,116 @@ describe("extension authorization", () => {
         await jsonRequest("/auth/logout", "POST", undefined, extension.token)
       ).status,
     ).toBe(204);
+  });
+
+  it("mints a read-only assist token and returns metadata-only suggestions", async () => {
+    const web = await register(`assist-${crypto.randomUUID()}@example.com`);
+    const now = Date.now();
+    const pages = [
+      {
+        id: crypto.randomUUID(),
+        url: "https://example.com/story?utm_source=first#old",
+        title: "Assistmarker older visit",
+        visitedAt: now - 1000,
+        text: "assistmarker body secret full text",
+      },
+      {
+        id: crypto.randomUUID(),
+        url: "https://example.com/story?utm_source=second#new",
+        title: "Assistmarker newest visit",
+        visitedAt: now,
+        text: "assistmarker body secret full text",
+      },
+      {
+        id: crypto.randomUUID(),
+        url: "https://pornhub.com/hidden",
+        title: "Assistmarker sensitive",
+        visitedAt: now,
+        text: "assistmarker body secret full text",
+      },
+    ];
+    expect(
+      (
+        await jsonRequest(
+          "/sync/push",
+          "POST",
+          { deviceId: "assist-device", pages },
+          web.token,
+        )
+      ).status,
+    ).toBe(200);
+    const pkce = await createPkcePair();
+    const started = await jsonRequest("/auth/extension/start", "POST", {
+      codeChallenge: pkce.challenge,
+      client: "Chrome extension",
+      scope: "assist",
+    });
+    expect(started.status).toBe(201);
+    const grant = await started.json<{ requestId: string }>();
+    const info = await jsonRequest("/auth/extension/request", "POST", {
+      requestId: grant.requestId,
+    });
+    expect(await info.json()).toMatchObject({ scope: "assist", status: "pending" });
+    expect(
+      (
+        await jsonRequest(
+          "/auth/extension/approve",
+          "POST",
+          { requestId: grant.requestId },
+          web.token,
+        )
+      ).status,
+    ).toBe(200);
+    const exchanged = await jsonRequest("/auth/extension/token", "POST", {
+      requestId: grant.requestId,
+      codeVerifier: pkce.verifier,
+    });
+    const assist = await exchanged.json<{ token: string; scope: string }>();
+    expect(assist.scope).toBe("assist");
+
+    const suggested = await request("/suggest?q=assistmarker&limit=6", {
+      headers: { Authorization: `Bearer ${assist.token}` },
+    });
+    expect(suggested.status).toBe(200);
+    const suggestionBody = await suggested.json<{
+      suggestions: Array<Record<string, unknown>>;
+    }>();
+    expect(suggestionBody.suggestions).toHaveLength(1);
+    expect(suggestionBody.suggestions[0]).toMatchObject({
+      title: "Assistmarker newest visit",
+    });
+    expect(suggestionBody.suggestions[0]).not.toHaveProperty("text");
+    expect(suggestionBody.suggestions[0]).not.toHaveProperty("snippet");
+
+    const snapshot = await request("/index-snapshot?limit=100", {
+      headers: { Authorization: `Bearer ${assist.token}` },
+    });
+    expect(snapshot.status).toBe(200);
+    const snapshotBody = await snapshot.json<{
+      version: string;
+      items: Array<{ title: string }>;
+    }>();
+    expect(snapshotBody.version).toMatch(/^v1:/);
+    expect(snapshotBody.items).toHaveLength(1);
+    expect(snapshotBody.items[0]?.title).toBe("Assistmarker newest visit");
+
+    expect(
+      (
+        await request("/search?q=assistmarker", {
+          headers: { Authorization: `Bearer ${assist.token}` },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await jsonRequest(
+          "/sync/push",
+          "POST",
+          { deviceId: "blocked", pages: [] },
+          assist.token,
+        )
+      ).status,
+    ).toBe(403);
   });
 });
 

@@ -55,11 +55,14 @@ export interface AuthResponse {
   user: UserInfo;
 }
 
-export type SessionScope = "full" | "capture";
+export type ExtensionAuthScope = "capture" | "assist";
+export type SessionScope = "full" | ExtensionAuthScope;
 
 export interface ExtensionAuthStartRequest {
   codeChallenge: string;
   client: string;
+  /** Defaults to capture for backwards-compatible extension installs. */
+  scope?: ExtensionAuthScope;
 }
 
 export interface ExtensionAuthStartResponse {
@@ -69,6 +72,7 @@ export interface ExtensionAuthStartResponse {
 
 export interface ExtensionAuthRequestInfo {
   client: string;
+  scope: ExtensionAuthScope;
   expiresAt: number;
   status: "pending" | "approved";
 }
@@ -80,7 +84,7 @@ export interface ExtensionAuthExchangeRequest {
 
 export type ExtensionAuthExchangeResponse =
   | { status: "pending" }
-  | ({ status: "connected" } & AuthResponse);
+  | ({ status: "connected"; scope: ExtensionAuthScope } & AuthResponse);
 
 export interface PasswordChangeRequest {
   currentPassword: string;
@@ -203,6 +207,25 @@ export interface SearchResponse {
   total: number;
 }
 
+/** Metadata-only result intended for browser and OS suggestion surfaces. */
+export interface HistorySuggestion {
+  id: string;
+  url: string;
+  title: string;
+  visitedAt: number;
+}
+
+export interface SuggestResponse {
+  query: string;
+  suggestions: HistorySuggestion[];
+}
+
+export interface IndexSnapshotResponse {
+  version: string;
+  generatedAt: number;
+  items: HistorySuggestion[];
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -241,6 +264,8 @@ export const Routes = {
   node: (id: string) => `/nodes/${id}`,
   syncPush: "/sync/push",
   search: "/search",
+  suggest: "/suggest",
+  indexSnapshot: "/index-snapshot",
   recent: "/pages",
   page: (id: string) => `/pages/${id}`,
   pageText: (id: string) => `/pages/${id}/text`,

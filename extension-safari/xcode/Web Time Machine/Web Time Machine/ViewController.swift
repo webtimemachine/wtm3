@@ -23,12 +23,49 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         self.webView.loadFileURL(Bundle.main.url(forResource: "Main", withExtension: "html")!, allowingReadAccessTo: Bundle.main.resourceURL!)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        sendStatus()
+        guard SearchAssistStore.isEnabled else { return }
+        SearchAssistIndexer.shared.refresh { _ in
+            DispatchQueue.main.async { self.sendStatus() }
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Override point for customization.
+        sendStatus()
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        // Override point for customization.
+        guard let action = message.body as? String else { return }
+        switch action {
+        case "refresh":
+            SearchAssistIndexer.shared.refresh { _ in
+                DispatchQueue.main.async { self.sendStatus() }
+            }
+        case "clear":
+            SearchAssistIndexer.shared.clear { _ in
+                DispatchQueue.main.async { self.sendStatus() }
+            }
+        case "disable":
+            SearchAssistStore.disable(nativeUserInitiated: true)
+            SearchAssistIndexer.shared.clear { _ in
+                DispatchQueue.main.async { self.sendStatus() }
+            }
+        case "settings":
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        default:
+            break
+        }
+    }
+
+    private func sendStatus() {
+        guard webView != nil,
+              let data = try? JSONSerialization.data(withJSONObject: SearchAssistStore.statusPayload()),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.wtmStatus(\(json))")
     }
 
 }

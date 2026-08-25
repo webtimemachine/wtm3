@@ -21,6 +21,8 @@
     node: (id) => `/nodes/${id}`,
     syncPush: "/sync/push",
     search: "/search",
+    suggest: "/suggest",
+    indexSnapshot: "/index-snapshot",
     recent: "/pages",
     page: (id) => `/pages/${id}`,
     pageText: (id) => `/pages/${id}/text`,
@@ -45,13 +47,14 @@
       this.token = opts.token ?? null;
       this.f = opts.fetchImpl ?? fetch.bind(globalThis);
     }
-    async req(method, path, body) {
+    async req(method, path, body, signal) {
       const headers = {};
       if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
       if (body !== void 0) headers["Content-Type"] = "application/json";
       const res = await this.f(`${this.baseUrl}${path}`, {
         method,
         headers,
+        signal,
         body: body !== void 0 ? JSON.stringify(body) : void 0
       });
       if (!res.ok) {
@@ -133,6 +136,14 @@
       if (opts.sort) p.set("sort", opts.sort);
       return this.req("GET", `${Routes.search}?${p.toString()}`);
     }
+    suggest(query, limit = 6, signal) {
+      const p = new URLSearchParams({ q: query, limit: String(limit) });
+      return this.req("GET", `${Routes.suggest}?${p.toString()}`, void 0, signal);
+    }
+    indexSnapshot(limit = 2e3) {
+      const p = new URLSearchParams({ limit: String(limit) });
+      return this.req("GET", `${Routes.indexSnapshot}?${p.toString()}`);
+    }
     recent(opts = {}) {
       const p = new URLSearchParams();
       if (opts.limit != null) p.set("limit", String(opts.limit));
@@ -162,14 +173,19 @@
     baseUrl: DEFAULT_BACKEND,
     token: null,
     tokenScope: null,
+    assistToken: null,
+    assistEnabled: false,
+    lastAssistError: null,
     user: null,
     deviceId: null,
     deviceOwner: null,
     captureEnabled: true,
+    searchRouterEnabled: false,
     lastSync: null,
     lastError: null,
     lastErrorAt: null,
-    pendingConnection: null
+    pendingConnection: null,
+    pendingAssistConnection: null
   };
 
   // ../node_modules/.pnpm/fflate@0.8.3/node_modules/fflate/esm/browser.js
@@ -1223,6 +1239,8 @@
   var FLUSH_ALARM = "wtm:flush";
   var BATCH = 50;
   var BATCH_SOFT_BYTES = 1e6;
+  var SEARCH_URL = "https://webtm.io/search";
+  var ROUTER_RULE_IDS = [9101, 9102, 9103];
   function takeBatch(queue) {
     const batch = [];
     let bytes = 0;
@@ -1237,9 +1255,11 @@
   var flushing = false;
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
+    void configureSearchRouter();
   });
   chrome.runtime.onStartup.addListener(() => {
     chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
+    void configureSearchRouter();
   });
   chrome.alarms.onAlarm.addListener((a) => {
     if (a.name === FLUSH_ALARM) void flush();
@@ -1260,7 +1280,20 @@
           return sendResponse({ ok: true });
         }
         if (msg?.type === "setState" && msg.patch && typeof msg.patch === "object") {
+          const changesRouter = Object.hasOwn(msg.patch, "searchRouterEnabled");
+          const previousRouter = changesRouter ? (await getState()).searchRouterEnabled : null;
           const state = await applyStatePatch(msg.patch);
+          if (Object.hasOwn(msg.patch, "assistToken") || Object.hasOwn(msg.patch, "assistEnabled")) {
+            resetSuggestionCache();
+          }
+          if (changesRouter) {
+            try {
+              await configureSearchRouter(state);
+            } catch (error) {
+              await applyStatePatch({ searchRouterEnabled: previousRouter ?? false });
+              throw error;
+            }
+          }
           if (msg.thenFlush) void flush();
           return sendResponse({ ok: true, state });
         }
@@ -1275,6 +1308,133 @@
     })();
     return true;
   });
+  var omnibox = chrome.omnibox;
+  var suggestionGeneration = 0;
+  var suggestionTimer = null;
+  var suggestionAbort = null;
+  var suggestionCache = /* @__PURE__ */ new Map();
+  function resetSuggestionCache() {
+    suggestionGeneration++;
+    if (suggestionTimer) clearTimeout(suggestionTimer);
+    suggestionTimer = null;
+    suggestionAbort?.abort();
+    suggestionAbort = null;
+    suggestionCache.clear();
+  }
+  if (PLATFORM === "chrome" && omnibox) {
+    omnibox.setDefaultSuggestion({
+      description: "Search your Web Time Machine history"
+    });
+    omnibox.onInputChanged.addListener((text, suggest) => {
+      const generation = ++suggestionGeneration;
+      if (suggestionTimer) clearTimeout(suggestionTimer);
+      suggestionAbort?.abort();
+      const query = text.trim();
+      if (query.length < 2) {
+        suggest([]);
+        return;
+      }
+      const cached = suggestionCache.get(query.toLowerCase());
+      if (cached) {
+        suggest(cached);
+        return;
+      }
+      suggestionTimer = setTimeout(() => {
+        suggestionTimer = null;
+        const controller = new AbortController();
+        suggestionAbort = controller;
+        void getOmniboxSuggestions(query, controller.signal).then((results) => {
+          if (generation !== suggestionGeneration) return;
+          suggestionCache.set(query.toLowerCase(), results);
+          if (suggestionCache.size > 40) {
+            suggestionCache.delete(suggestionCache.keys().next().value ?? "");
+          }
+          suggest(results);
+        });
+      }, 90);
+    });
+    omnibox.onInputEntered.addListener((text, disposition) => {
+      void openOmniboxResult(text, disposition);
+    });
+  }
+  function escapeOmnibox(value) {
+    return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  async function getOmniboxSuggestions(query, signal) {
+    const state = await getState();
+    if (!state.assistEnabled || !state.assistToken) {
+      omnibox?.setDefaultSuggestion({
+        description: "Enable Search Assist from the Web Time Machine extension"
+      });
+      return [];
+    }
+    try {
+      const response = await new WtmClient({
+        baseUrl: state.baseUrl,
+        token: state.assistToken
+      }).suggest(query, 6, signal);
+      omnibox?.setDefaultSuggestion({
+        description: `Search Web Time Machine for <match>${escapeOmnibox(query)}</match>`
+      });
+      return response.suggestions.map((item) => ({
+        content: item.url,
+        description: `<match>${escapeOmnibox(item.title || item.url)}</match> <dim>${escapeOmnibox(new URL(item.url).hostname)}</dim>`,
+        deletable: false
+      }));
+    } catch (error) {
+      if (error instanceof WtmApiError && error.status === 401) {
+        await applyStatePatch({
+          assistToken: null,
+          assistEnabled: false,
+          lastAssistError: "Search Assist authorization expired. Enable it again to reconnect."
+        });
+        resetSuggestionCache();
+      }
+      return [];
+    }
+  }
+  async function openOmniboxResult(text, disposition) {
+    let url = text.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      const search = new URL(SEARCH_URL);
+      search.searchParams.set("q", url);
+      url = search.toString();
+    }
+    if (disposition === "newForegroundTab") {
+      await chrome.tabs.create({ url, active: true });
+    } else if (disposition === "newBackgroundTab") {
+      await chrome.tabs.create({ url, active: false });
+    } else {
+      await chrome.tabs.update({ url });
+    }
+  }
+  async function configureSearchRouter(existing) {
+    if (PLATFORM !== "safari-ios" || !chrome.declarativeNetRequest) return;
+    const state = existing ?? await getState();
+    const rules = state.searchRouterEnabled ? [
+      routerRule(9101, "^https?://(?:www\\.)?google\\.[^/]+/search\\?(?:[^#]*&)?q=(?:wtm(?:%20|\\+)|(?:%21|!)w(?:%20|\\+))([^&#]+)(?:&.*)?$"),
+      routerRule(9102, "^https?://(?:www\\.)?bing\\.com/search\\?(?:[^#]*&)?q=(?:wtm(?:%20|\\+)|(?:%21|!)w(?:%20|\\+))([^&#]+)(?:&.*)?$"),
+      routerRule(9103, "^https?://(?:www\\.)?duckduckgo\\.com/\\?(?:[^#]*&)?q=(?:wtm(?:%20|\\+)|(?:%21|!)w(?:%20|\\+))([^&#]+)(?:&.*)?$")
+    ] : [];
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: ROUTER_RULE_IDS,
+      addRules: rules
+    });
+  }
+  function routerRule(id, regexFilter) {
+    return {
+      id,
+      priority: 1,
+      action: {
+        type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+        redirect: { regexSubstitution: `${SEARCH_URL}?q=\\1` }
+      },
+      condition: {
+        regexFilter,
+        resourceTypes: [chrome.declarativeNetRequest.ResourceType.MAIN_FRAME]
+      }
+    };
+  }
   function scheduleFlush(delay = 2500) {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {

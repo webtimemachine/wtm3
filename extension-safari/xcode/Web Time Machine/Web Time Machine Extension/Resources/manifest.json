@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Web Time Machine",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "Passively record, sync, and full-text search the readable text of every page you visit.",
-  "permissions": ["storage", "alarms"],
+  "permissions": ["storage", "alarms", "nativeMessaging", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"

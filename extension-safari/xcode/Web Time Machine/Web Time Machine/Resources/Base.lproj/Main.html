@@ -2,14 +2,58 @@
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'">
 
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 
     <link rel="stylesheet" href="../Style.css">
 </head>
 <body>
-    <img src="../Icon.png" width="128" height="128" alt="Web Time Machine Icon">
-    <p>You can turn on Web Time Machine’s Safari extension in Settings.</p>
+    <main>
+        <img src="../Icon.png" width="96" height="96" alt="Web Time Machine Icon">
+        <h1>Web Time Machine</h1>
+        <p class="lede">Capture pages with the Safari extension and recall them through Search Assist.</p>
+
+        <section class="card">
+            <div class="heading">
+                <strong>Search Assist</strong>
+                <span id="state" class="badge">Checking…</span>
+            </div>
+            <p id="summary">Enable Search Assist from the Safari extension popup.</p>
+            <p id="detail" class="detail"></p>
+            <div class="actions">
+                <button id="refresh" onclick="send('refresh')">Refresh Spotlight</button>
+                <button class="secondary" onclick="send('clear')">Clear index</button>
+                <button class="danger" onclick="send('disable')">Disable</button>
+            </div>
+        </section>
+
+        <section class="card compact">
+            <strong>Safari extension</strong>
+            <p>Turn on Web Time Machine in Safari Extensions, then use its popup to connect capture and Search Assist separately.</p>
+            <button class="secondary" onclick="send('settings')">Open Settings</button>
+        </section>
+    </main>
+    <script>
+        function send(action) {
+            window.webkit.messageHandlers.controller.postMessage(action);
+        }
+        window.wtmStatus = function (status) {
+            const state = document.getElementById('state');
+            const summary = document.getElementById('summary');
+            const detail = document.getElementById('detail');
+            const refresh = document.getElementById('refresh');
+            state.textContent = status.enabled ? 'On' : 'Off';
+            state.className = status.enabled ? 'badge on' : 'badge';
+            refresh.disabled = !status.enabled;
+            summary.textContent = status.enabled
+                ? `${status.indexedCount || 0} saved page${status.indexedCount === 1 ? '' : 's'} available to iOS Spotlight.`
+                : 'Enable Search Assist from the Safari extension popup.';
+            const parts = [];
+            if (status.lastRefresh) parts.push(`Updated ${new Date(status.lastRefresh * 1000).toLocaleString()}`);
+            if (status.lastError) parts.push(status.lastError);
+            detail.textContent = parts.join(' · ');
+        };
+    </script>
 </body>
 </html>

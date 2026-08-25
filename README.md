@@ -48,7 +48,21 @@ changes, resets, and account deletion also revoke MCP OAuth grants.
 Browser extensions connect through a one-time, PKCE-protected approval on the
 website, so credentials are entered only in password-manager-friendly web forms.
 Extensions receive separate capture-scoped tokens that cannot search history,
-read stored pages, or change account settings.
+read stored pages, or change account settings. Search Assist is a second,
+independently approved token limited to metadata-only suggestions and index
+snapshots; disabling it does not interrupt capture.
+
+## Search Assist
+
+- In desktop Chrome, type `wtm` and a space in the address bar to search saved
+  history through the extension omnibox API.
+- In iOS, the containing app places metadata-only WTM results into a named Core
+  Spotlight index. iOS and Safari decide whether and where those results rank.
+- Safari cannot accept a third-party native search-engine registration. The iOS
+  extension instead offers an optional, off-by-default router for submitted
+  searches explicitly prefixed with `wtm ` or `!w `; ordinary searches and
+  autocomplete are untouched.
+- Sensitive pages and captured page text are never returned by Search Assist.
 
 Upgrading from v3 intentionally invalidates the old stateless JWTs, so every
 client signs in once after the v4 rollout.

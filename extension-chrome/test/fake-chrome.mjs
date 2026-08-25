@@ -117,6 +117,10 @@ export class FakeStorageArea {
 export function makeFakeChrome(storageArea, { manifestVersion = "0.0.0-test" } = {}) {
   const messageListeners = [];
   const alarmListeners = [];
+  const omniboxChangedListeners = [];
+  const omniboxEnteredListeners = [];
+  const tabCalls = [];
+  const dynamicRuleUpdates = [];
   return {
     storage: { local: storageArea },
     runtime: {
@@ -145,6 +149,35 @@ export function makeFakeChrome(storageArea, { manifestVersion = "0.0.0-test" } =
       _fire(name) {
         for (const fn of alarmListeners) fn({ name });
       },
+    },
+    omnibox: {
+      defaultSuggestion: null,
+      setDefaultSuggestion(value) { this.defaultSuggestion = value; },
+      onInputChanged: { addListener: (fn) => omniboxChangedListeners.push(fn) },
+      onInputEntered: { addListener: (fn) => omniboxEnteredListeners.push(fn) },
+      _change(text) {
+        return new Promise((resolve) => {
+          if (!omniboxChangedListeners.length) return resolve([]);
+          omniboxChangedListeners.at(-1)(text, resolve);
+        });
+      },
+      _enter(text, disposition = "currentTab") {
+        for (const fn of omniboxEnteredListeners) fn(text, disposition);
+      },
+    },
+    tabs: {
+      async create(options) { tabCalls.push({ method: "create", ...options }); },
+      async update(options) { tabCalls.push({ method: "update", ...options }); },
+      _calls: tabCalls,
+    },
+    windows: {
+      async create(options) { tabCalls.push({ method: "window", ...options }); },
+    },
+    declarativeNetRequest: {
+      RuleActionType: { REDIRECT: "redirect" },
+      ResourceType: { MAIN_FRAME: "main_frame" },
+      async updateDynamicRules(update) { dynamicRuleUpdates.push(update); },
+      _updates: dynamicRuleUpdates,
     },
     _messageListeners: messageListeners,
   };

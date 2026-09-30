@@ -658,6 +658,20 @@ describe("page lifecycle", () => {
       "Old example result",
     ]);
 
+    const browsed = await search({ q: "", site: "example.com", sort: "oldest", limit: "1" });
+    expect(browsed.total).toBe(2);
+    expect(browsed.hits.map((hit) => hit.id)).toEqual([pages[1]!.id]);
+    const next = await search({ q: "", site: "example.com", sort: "oldest", limit: "1", offset: "1" });
+    expect(next.total).toBe(2);
+    expect(next.hits.map((hit) => hit.id)).toEqual([pages[0]!.id]);
+    const filteredBrowse = await search({
+      q: "   ", site: "example.com", from: String(now - 7 * 86_400_000), to: String(now), sort: "newest",
+    });
+    expect(filteredBrowse.hits.map((hit) => hit.id)).toEqual([pages[0]!.id]);
+    expect((await search({ q: "", to: String(pages[0]!.visitedAt), sort: "oldest" })).hits.map((hit) => hit.id))
+      .toEqual([pages[1]!.id]);
+    expect((await search({ q: "!!!" })).total).toBe(0);
+
     const mcp = await jsonRequest(
       "/mcp",
       "POST",
@@ -692,6 +706,45 @@ describe("page lifecycle", () => {
         })
       ).status,
     ).toBe(400);
+  });
+
+  it("browses metadata-only pages without leaking other users or hidden sensitive pages", async () => {
+    const auth = await register(`browse-${crypto.randomUUID()}@example.com`);
+    const other = await register(`other-browse-${crypto.randomUUID()}@example.com`);
+    const now = Date.now();
+    const visible = ["browse-a", "browse-b"].map((id) => ({
+      id: `${auth.user.id}-${id}`, url: `https://example.com/${id}`,
+      title: id, visitedAt: now, text: "",
+    }));
+    const sensitiveId = crypto.randomUUID();
+    expect((await jsonRequest("/sync/push", "POST", {
+      deviceId: "browse-device", pages: [...visible, {
+        id: sensitiveId, url: "https://example.com/hidden", title: "Hidden page",
+        visitedAt: now, text: "",
+      }],
+    }, auth.token)).status).toBe(200);
+    expect((await jsonRequest("/sync/push", "POST", {
+      deviceId: "other-device", pages: [{
+        id: crypto.randomUUID(), url: "https://example.com/other-user",
+        title: "Other user's page", visitedAt: now, text: "",
+      }],
+    }, other.token)).status).toBe(200);
+    await env.DB.prepare("UPDATE pages SET sensitive=1 WHERE id=?1").bind(sensitiveId).run();
+    expect((await jsonRequest("/settings", "PATCH", { filterSensitive: true }, auth.token)).status).toBe(200);
+    async function browse(offset: number) {
+      const response = await request(`/search?q=&site=example.com&limit=1&offset=${offset}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      expect(response.status).toBe(200);
+      return response.json<{ total: number; hits: { id: string; snippet: string; rank: number }[] }>();
+    }
+    const first = await browse(0);
+    const second = await browse(1);
+    expect(first.total).toBe(2);
+    expect(second.total).toBe(2);
+    expect([...first.hits, ...second.hits].map((hit) => hit.id)).toEqual(visible.map((page) => page.id));
+    expect(first.hits[0]).toMatchObject({ snippet: "", rank: 0 });
+    expect((await browse(2)).hits).toEqual([]);
   });
 
   it("searches URLs, ranking an address match over a body mention", async () => {

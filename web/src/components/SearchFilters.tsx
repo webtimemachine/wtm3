@@ -9,23 +9,29 @@ export function SearchFilters({
   onTimePreset,
   site,
   onSite,
+  onSiteBlur,
   sort,
   onSort,
   customFrom,
   onCustomFrom,
   customTo,
   onCustomTo,
+  hasFilters,
+  onClear,
 }: {
   timePreset: SearchTimePreset;
   onTimePreset: (value: SearchTimePreset) => void;
   site: string;
   onSite: (value: string) => void;
+  onSiteBlur: () => void;
   sort: SearchSort;
   onSort: (value: SearchSort) => void;
   customFrom: string;
   onCustomFrom: (value: string) => void;
   customTo: string;
   onCustomTo: (value: string) => void;
+  hasFilters: boolean;
+  onClear: () => void;
 }) {
   return (
     <section className="search-filters" aria-label="Search filters">
@@ -49,6 +55,7 @@ export function SearchFilters({
           type="search"
           value={site}
           onChange={(event) => onSite(event.target.value)}
+          onBlur={onSiteBlur}
           placeholder="nytimes.com"
           autoComplete="off"
         />
@@ -86,6 +93,9 @@ export function SearchFilters({
           </label>
         </div>
       )}
+      {hasFilters && <button type="button" className="link clear-filters" onClick={onClear}>
+        Clear filters
+      </button>}
     </section>
   );
 }

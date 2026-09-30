@@ -9,7 +9,6 @@ import {
 import type {
   PageRecord,
   SearchHit,
-  SearchSort,
   UserInfo,
 } from "@wtm/shared";
 import { WtmApiError } from "@wtm/shared/api";
@@ -18,11 +17,15 @@ import {
   hostname,
   SEARCH_DEBOUNCE_MS,
 } from "@wtm/shared/format";
-import {
-  searchRangeForPreset,
-  type SearchTimePreset,
-} from "@wtm/shared/search";
+import { searchRangeForPreset } from "@wtm/shared/search";
 import { groupByDay, type HistoryItem } from "../history";
+import {
+  defaultSearchState,
+  hasSearchFilters,
+  readSearchState,
+  searchStateUrl,
+  type SearchState,
+} from "../search-state";
 import {
   clientFor,
   snippetHtml,
@@ -47,29 +50,46 @@ export function Dashboard({
     () => clientFor(session.baseUrl, session.token),
     [session.baseUrl, session.token],
   );
-  const [query, setQuery] = useState(
-    () => new URLSearchParams(window.location.search).get("q") ?? "",
+  const [search, setSearch] = useState(
+    () => readSearchState(new URL(window.location.href)),
   );
-  const [timePreset, setTimePreset] = useState<SearchTimePreset>("any");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-  const [site, setSite] = useState("");
-  const [sort, setSort] = useState<SearchSort>("relevance");
+  const { query, timePreset, customFrom, customTo, site, sort } = search;
+  const searchRef = useRef(search);
+  const editingField = useRef<"query" | "site" | null>(null);
+  const [refresh, setRefresh] = useState(0);
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const [cursor, setCursor] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
   const [textFor, setTextFor] = useState<PageRecord | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showTop, setShowTop] = useState(false);
   const requestId = useRef(0);
+  const fetching = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const searchRange = useMemo(
-    () => searchRangeForPreset(timePreset, customFrom, customTo),
-    [timePreset, customFrom, customTo],
-  );
+
+  function updateSearch(patch: Partial<SearchState>, field?: "query" | "site") {
+    const next = { ...searchRef.current, ...patch };
+    if (patch.timePreset && patch.timePreset !== "custom") {
+      next.customFrom = "";
+      next.customTo = "";
+    }
+    const url = searchStateUrl(new URL(window.location.href), next);
+    if (Object.keys(next).every((key) =>
+      next[key as keyof SearchState] === searchRef.current[key as keyof SearchState],
+    )) return;
+    // One history entry per text edit, rather than one per keystroke.
+    if (url.href !== window.location.href) {
+      const method = field && editingField.current === field ? "replaceState" : "pushState";
+      window.history[method](null, "", url);
+      editingField.current = field ?? null;
+    }
+    searchRef.current = next;
+    ++requestId.current;
+    setSearch(next);
+  }
 
   const handleError = useCallback(
     (caught: unknown) => {
@@ -84,92 +104,91 @@ export function Dashboard({
     [onLogout],
   );
 
-  const loadRecent = useCallback(
-    async (before?: number, append = false) => {
-      const id = ++requestId.current;
-      setLoading(true);
-      setError("");
-      try {
-        const response = await client.recent({ limit: 30, before });
-        if (id !== requestId.current) return;
-        setTotal(null);
-        setItems((current) =>
-          append ? [...current, ...response.pages] : response.pages,
-        );
-        setCursor(response.pages.length === 30 ? response.cursor : null);
-      } catch (caught) {
-        if (id === requestId.current) handleError(caught);
-      } finally {
-        if (id === requestId.current) setLoading(false);
-      }
-    },
-    [client, handleError],
-  );
-
   const runSearch = useCallback(
-    async (value: string) => {
+    async (state: SearchState, offset = 0) => {
+      if (state !== searchRef.current || (offset > 0 && fetching.current)) return;
       const id = ++requestId.current;
+      fetching.current = true;
       setLoading(true);
       setError("");
+      const searchRange = searchRangeForPreset(
+        state.timePreset, state.customFrom, state.customTo,
+      );
       if (
         searchRange.from !== undefined &&
         searchRange.to !== undefined &&
         searchRange.from >= searchRange.to
       ) {
         setError("The start date must be before the end date.");
+        fetching.current = false;
         setLoading(false);
         return;
       }
       try {
-        const response = await client.search(value, {
+        const response = await client.search(state.query.trim(), {
           limit: 50,
+          offset,
           ...searchRange,
-          site,
-          sort,
+          site: state.site,
+          sort: state.sort,
         });
-        if (id !== requestId.current) return;
-        setItems(response.hits);
+        if (id !== requestId.current || state !== searchRef.current) return;
+        setItems((current) => offset ? [...current, ...response.hits] : response.hits);
         setTotal(response.total);
-        setCursor(null);
+        const end = offset + response.hits.length;
+        setNextOffset(response.hits.length && end < response.total ? end : null);
       } catch (caught) {
         if (id === requestId.current) handleError(caught);
       } finally {
-        if (id === requestId.current) setLoading(false);
+        if (id === requestId.current) {
+          fetching.current = false;
+          setLoading(false);
+        }
       }
     },
-    [client, handleError, searchRange, site, sort],
+    [client, handleError],
   );
 
   useEffect(() => {
-    const value = query.trim();
-    const timer = setTimeout(() => {
-      if (value) void runSearch(value);
-      else void loadRecent();
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [query, runSearch, loadRecent]);
+    ++requestId.current;
+    fetching.current = false;
+    setItems([]);
+    setTotal(null);
+    setNextOffset(null);
+    setError("");
+    setLoading(true);
+    const timer = setTimeout(() => void runSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      ++requestId.current;
+    };
+  }, [search, refresh, runSearch]);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const value = query.trim();
-    if (value) url.searchParams.set("q", value);
-    else url.searchParams.delete("q");
-    window.history.replaceState(null, "", url);
-  }, [query]);
+    const restore = () => {
+      const next = readSearchState(new URL(window.location.href));
+      editingField.current = null;
+      searchRef.current = next;
+      ++requestId.current;
+      setSearch(next);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
 
   useEffect(() => {
     const element = sentinelRef.current;
-    if (!element || query.trim() || cursor == null) return;
+    if (!element || query.trim() || nextOffset == null || error) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting && !loading)
-          void loadRecent(cursor, true);
+          void runSearch(search, nextOffset);
       },
       { rootMargin: "300px" },
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [cursor, loading, query, loadRecent]);
+  }, [nextOffset, loading, query, search, error, runSearch]);
 
   useEffect(() => {
     let frame = 0;
@@ -186,16 +205,21 @@ export function Dashboard({
 
   function backToLatest() {
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setQuery("");
-    void loadRecent(undefined, false);
+    updateSearch(defaultSearchState());
+    setRefresh((value) => value + 1);
   }
 
   async function deletePage(id: string) {
+    const state = searchRef.current;
     try {
       await client.deletePage(id);
+      if (state !== searchRef.current) return;
       setItems((current) => current.filter((page) => page.id !== id));
       setTotal((current) =>
         current === null ? current : Math.max(0, current - 1),
+      );
+      setNextOffset((current) =>
+        current === null ? null : Math.max(0, current - 1),
       );
     } catch (caught) {
       handleError(caught);
@@ -234,45 +258,52 @@ export function Dashboard({
         </button>
       </header>
 
-      <form className="searchbar" action="/search" method="get">
+      <form className="searchbar" onSubmit={(event) => {
+        event.preventDefault();
+        editingField.current = null;
+        setRefresh((value) => value + 1);
+      }}>
         <input
           type="search"
           name="q"
           autoFocus
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => updateSearch({ query: event.target.value }, "query")}
+          onBlur={() => { editingField.current = null; }}
+          aria-label="Search the full text of your history"
           placeholder="Search the full text of your history…"
         />
         <span className="count">
-          {query.trim()
-            ? total != null
-              ? `${total} match${total === 1 ? "" : "es"}`
-              : ""
-            : "Recent"}
+          {total != null ? query.trim()
+            ? `${total} match${total === 1 ? "" : "es"}`
+            : `${total} page${total === 1 ? "" : "s"}` : ""}
         </span>
       </form>
 
       <SearchFilters
         timePreset={timePreset}
-        onTimePreset={setTimePreset}
+        onTimePreset={(timePreset) => updateSearch({ timePreset })}
         site={site}
-        onSite={setSite}
+        onSite={(site) => updateSearch({ site }, "site")}
+        onSiteBlur={() => { editingField.current = null; }}
         sort={sort}
-        onSort={setSort}
+        onSort={(sort) => updateSearch({ sort })}
         customFrom={customFrom}
-        onCustomFrom={setCustomFrom}
+        onCustomFrom={(customFrom) => updateSearch({ customFrom })}
         customTo={customTo}
-        onCustomTo={setCustomTo}
+        onCustomTo={(customTo) => updateSearch({ customTo })}
+        hasFilters={hasSearchFilters(search)}
+        onClear={() => updateSearch({ ...defaultSearchState(), query })}
       />
 
       {error && <div className="banner error">{error}</div>}
 
       <main className="list">
-        {!items.length && !loading && (
+        {!items.length && !loading && !error && (
           <div className="empty">
             {query.trim()
               ? `No matches for “${query.trim()}”.`
-              : "No pages captured yet."}
+              : hasSearchFilters(search) ? "No pages match these filters." : "No pages captured yet."}
           </div>
         )}
         {query.trim()
@@ -299,8 +330,13 @@ export function Dashboard({
             ))}
         {loading && (
           <div className="empty">
-            {items.length ? "Loading older…" : "Loading…"}
+            {items.length ? "Loading more…" : "Loading…"}
           </div>
+        )}
+        {nextOffset !== null && !loading && (
+          <button className="load-more" onClick={() => void runSearch(search, nextOffset)}>
+            Load more
+          </button>
         )}
         {!query.trim() && (
           <div ref={sentinelRef} className="sentinel" aria-hidden="true" />
@@ -334,9 +370,7 @@ export function Dashboard({
               user.filterSensitive !== session.user.filterSensitive;
             onUpdateUser(user);
             if (filterChanged) {
-              const value = query.trim();
-              if (value) void runSearch(value);
-              else void loadRecent(undefined, false);
+              setRefresh((value) => value + 1);
             }
           }}
           onLogout={onLogout}

@@ -41,9 +41,9 @@ export function parseSearchSort(value: unknown): SearchSort | null {
 }
 
 export function searchOrder(sort: SearchSort, alias = "p"): string {
-  if (sort === "newest") return `${alias}.visited_at DESC, rank`;
-  if (sort === "oldest") return `${alias}.visited_at ASC, rank`;
-  return `rank, ${alias}.visited_at DESC`;
+  if (sort === "newest") return `${alias}.visited_at DESC, rank, ${alias}.id`;
+  if (sort === "oldest") return `${alias}.visited_at ASC, rank, ${alias}.id`;
+  return `rank, ${alias}.visited_at DESC, ${alias}.id`;
 }
 
 export function addSearchFilters(

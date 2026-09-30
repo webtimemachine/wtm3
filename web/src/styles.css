@@ -179,6 +179,8 @@ header .email { color: var(--muted); font-size: 13px; }
   color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--line);
 }
 .sentinel { height: 1px; }
+.clear-filters { align-self: end; margin-bottom: 8px; }
+.load-more { display: block; margin: 24px auto; }
 
 /* Floating back-to-latest button */
 .to-top {

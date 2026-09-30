@@ -389,7 +389,7 @@ export function registerPageRoutes(app: App): void {
       );
     }
     const match = toMatchQuery(query);
-    if (!match) {
+    if (!match && query.trim()) {
       const response: SearchResponse = { query, hits: [], total: 0 };
       return c.json(response);
     }
@@ -399,19 +399,28 @@ export function registerPageRoutes(app: App): void {
     const active = (await hasLegacyPageColumns(c.env))
       ? "AND p.deleted=0"
       : "";
-    const conditions = ["pages_fts MATCH ?1", "p.user_id=?2"];
-    const bindings: unknown[] = [match, userId];
+    const conditions = ["p.user_id=?1"];
+    const bindings: unknown[] = [userId];
+    if (match) {
+      bindings.push(match);
+      conditions.push("pages_fts MATCH ?2");
+    }
     addSearchFilters(conditions, bindings, { from, to, site });
     const where = conditions.join(" AND ");
+    const source = match
+      ? "pages_fts JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id"
+      : "pages p";
+    const fields = match
+      // title, body, url, byline, excerpt, summary
+      ? "snippet(pages_fts,1,'<mark>','</mark>','…',16) AS snippet, bm25(pages_fts,5.0,1.0,3.0,3.0,1.5,2.0) AS rank"
+      : "'' AS snippet, 0 AS rank";
+    const order = match ? searchOrder(sort)
+      : `p.visited_at ${sort === "oldest" ? "ASC" : "DESC"}, p.id`;
     const { results } = await c.env.DB.prepare(
-      `SELECT p.*,
-              snippet(pages_fts,1,'<mark>','</mark>','…',16) AS snippet,
-              -- title, body, url, byline, excerpt, summary
-              bm25(pages_fts,5.0,1.0,3.0,3.0,1.5,2.0) AS rank
-       FROM pages_fts
-       JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id
+      `SELECT p.*, ${fields}
+       FROM ${source}
        WHERE ${where} ${sensitive} ${active}
-       ORDER BY ${searchOrder(sort)}
+       ORDER BY ${order}
        LIMIT ?${bindings.length + 1} OFFSET ?${bindings.length + 2}`,
     )
       .bind(...bindings, limit, offset)
@@ -420,8 +429,7 @@ export function registerPageRoutes(app: App): void {
       (
         await c.env.DB.prepare(
           `SELECT count(*) AS n
-           FROM pages_fts
-           JOIN pages p ON p.id=pages_fts.page_id AND p.user_id=pages_fts.user_id
+           FROM ${source}
            WHERE ${where} ${sensitive} ${active}`,
         )
           .bind(...bindings)

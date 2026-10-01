@@ -23,6 +23,11 @@ pnpm --filter @wtm/extension-chrome build   # -> dist/
 
 - `content.ts` — runs Mozilla Readability on each page (and on SPA route changes),
   sends `{url,title,visitedAt,text,…}` to the background worker. Never blocks the page.
+- On X/Twitter, captures visible posts individually with their permalink, author,
+  posting time, text, and available photo descriptions. Watches new posts and
+  expanded text as you browse; ignores loading shells, composers, and messages.
+  Posting time is saved in the text; visit time records when you saw the post.
+  Media bytes, OCR, and posts that never become visible are not captured.
 - `background.ts` — queues captures in `chrome.storage.local`, registers this device
   as a **node**, and `POST`s batches to `/sync/push` (debounced + a 1-min alarm).
   A `401` clears the token so the popup re-prompts.

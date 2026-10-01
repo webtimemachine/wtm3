@@ -18,6 +18,7 @@ export { MAX_TEXT_CHARS };
 
 // URL policy lives in ./url so the Worker can import it without DOM types.
 export { isCapturableUrl, redactUrlCredentials } from "./url";
+export { captureXPostsFromDocument, isXPageUrl } from "./x-capture";
 
 function collapseWhitespace(s: string): string {
   return s.replace(/[ \t\f\v]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();

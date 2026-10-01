@@ -20,6 +20,7 @@
   "devDependencies": {
     "@types/chrome": "^0.0.287",
     "esbuild": "^0.24.2",
+    "linkedom": "^0.18.13",
     "typescript": "^5.7.3"
   }
 }

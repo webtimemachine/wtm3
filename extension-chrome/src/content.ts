@@ -4,7 +4,9 @@ import {
   capturePageFromDocument,
   isCapturableUrl,
   redactUrlCredentials,
+  isXPageUrl,
 } from "@wtm/shared/capture";
+import { startXCapture } from "./x-capture";
 
 const CAPTURE_DELAY = 1500; // let late-rendering / SPA content settle
 const POLL_MS = 2500; // detect client-side route changes
@@ -42,14 +44,19 @@ const RETRY_DELAYS = [CAPTURE_DELAY, 3500, 7000, 12000];
 function scheduleCaptures(): void {
   for (const d of RETRY_DELAYS) setTimeout(attempt, d);
 }
-scheduleCaptures();
+if (isXPageUrl(location.href)) {
+  startXCapture(document, () => location.href, (page) =>
+    chrome.runtime.sendMessage({ type: "capture", page }));
+} else {
+  scheduleCaptures();
 
-// Single-page-app navigations don't reload the content script; poll the URL and
-// re-run the bounded attempts when the route changes.
-let href = location.href;
-setInterval(() => {
-  if (location.href !== href) {
-    href = location.href;
-    scheduleCaptures();
-  }
-}, POLL_MS);
+  // Single-page-app navigations don't reload the content script; poll the URL
+  // and re-run the bounded attempts when the route changes.
+  let href = location.href;
+  setInterval(() => {
+    if (location.href !== href) {
+      href = location.href;
+      scheduleCaptures();
+    }
+  }, POLL_MS);
+}

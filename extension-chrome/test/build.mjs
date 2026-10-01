@@ -11,7 +11,7 @@ await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
 
 const PLATFORMS = ["chrome", "safari-ios"];
-const ENTRIES = ["storage", "background"];
+const ENTRIES = ["storage", "background", "content", "x-capture"];
 
 for (const platform of PLATFORMS) {
   for (const entry of ENTRIES) {

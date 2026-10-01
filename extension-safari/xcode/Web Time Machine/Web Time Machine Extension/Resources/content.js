@@ -367,9 +367,9 @@
           }
           var links = this._getAllNodesWithTag(articleContent, ["a"]);
           this._forEachNode(links, function(link) {
-            var href2 = link.getAttribute("href");
-            if (href2) {
-              if (href2.indexOf("javascript:") === 0) {
+            var href = link.getAttribute("href");
+            if (href) {
+              if (href.indexOf("javascript:") === 0) {
                 if (link.childNodes.length === 1 && link.childNodes[0].nodeType === this.TEXT_NODE) {
                   var text = this._doc.createTextNode(link.textContent);
                   link.parentNode.replaceChild(text, link);
@@ -381,7 +381,7 @@
                   link.parentNode.replaceChild(container, link);
                 }
               } else {
-                link.setAttribute("href", toAbsoluteURI(href2));
+                link.setAttribute("href", toAbsoluteURI(href));
               }
             }
           });
@@ -1387,8 +1387,8 @@
             return 0;
           var linkLength = 0;
           this._forEachNode(element.getElementsByTagName("a"), function(linkNode) {
-            var href2 = linkNode.getAttribute("href");
-            var coefficient = href2 && this.REGEXPS.hashUrl.test(href2) ? 0.3 : 1;
+            var href = linkNode.getAttribute("href");
+            var coefficient = href && this.REGEXPS.hashUrl.test(href) ? 0.3 : 1;
             linkLength += this._getInnerText(linkNode).length * coefficient;
           });
           return linkLength / textLength;
@@ -1946,6 +1946,117 @@
     return touched ? parsed.toString() : url;
   }
 
+  // ../shared/src/x-capture.ts
+  var X_HOSTS = /* @__PURE__ */ new Set([
+    "x.com",
+    "www.x.com",
+    "mobile.x.com",
+    "twitter.com",
+    "www.twitter.com",
+    "mobile.twitter.com"
+  ]);
+  var POST_SELECTOR = 'article, [data-testid="tweet"]';
+  var QUOTE_SELECTOR = '[data-testid="quoteTweet"], [data-testid="card.wrapper"], div[role="link"]';
+  function isXPageUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return /^https?:$/.test(parsed.protocol) && X_HOSTS.has(parsed.hostname);
+    } catch {
+      return false;
+    }
+  }
+  function canCapturePosts(url) {
+    if (!isXPageUrl(url)) return false;
+    const path = new URL(url).pathname;
+    return !/^\/(?:compose|messages|settings|login|logout)(?:\/|$)/i.test(path) && !/^\/i\/(?:chat|flow|jf)(?:\/|$)/i.test(path);
+  }
+  function clean(text) {
+    return text.replace(/[ \t\f\v]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  function readableText(node) {
+    if (node.nodeType === 3) return node.textContent || "";
+    if (node.nodeType !== 1) return "";
+    const element = node;
+    if (element.matches('[hidden], [aria-hidden="true"]')) return "";
+    if (element.tagName === "IMG") return element.getAttribute("alt") || "";
+    if (element.tagName === "BR") return "\n";
+    return [...element.childNodes].map(readableText).join("");
+  }
+  function ownElements(post, selector) {
+    return [...post.querySelectorAll(selector)].filter((element) => {
+      if (element.closest(POST_SELECTOR) !== post) return false;
+      const quote = element.closest(QUOTE_SELECTOR);
+      return !quote || !post.contains(quote);
+    });
+  }
+  function permalink(link, pageUrl) {
+    try {
+      const parsed = new URL(link.getAttribute("href") || "", pageUrl);
+      if (!isXPageUrl(parsed.href)) return null;
+      const match = /^\/([a-z0-9_]{1,15})\/status\/(\d+)(?:\/|$)/i.exec(parsed.pathname);
+      if (!match) return null;
+      return { url: `https://x.com/${match[1]}/status/${match[2]}`, handle: match[1] };
+    } catch {
+      return null;
+    }
+  }
+  function capturePost(post, pageUrl, lang) {
+    const links = ownElements(post, "a[href]");
+    const candidates = links.filter((link) => link.querySelector("time") || link.hasAttribute("data-base-ui-tooltip-trigger") || link.closest('[data-testid="User-Name"]'));
+    const timestampLink = candidates.find((link) => permalink(link, pageUrl));
+    if (!timestampLink) return null;
+    const identity = permalink(timestampLink, pageUrl);
+    let displayName = "";
+    for (const link of links) {
+      let path;
+      try {
+        path = new URL(link.getAttribute("href"), pageUrl).pathname;
+      } catch {
+        continue;
+      }
+      if (path.toLowerCase() !== `/${identity.handle.toLowerCase()}`) continue;
+      const label = clean(readableText(link));
+      if (label && !label.startsWith("@")) {
+        displayName = label;
+        break;
+      }
+    }
+    const byline = displayName ? `${displayName} (@${identity.handle})` : `@${identity.handle}`;
+    let bodies = ownElements(post, '[data-testid="tweetText"]');
+    if (!bodies.length) bodies = ownElements(post, '[dir="auto"].whitespace-pre-wrap').filter((element) => !element.closest("a, button"));
+    const body = bodies.map((element) => clean(readableText(element))).filter(Boolean).join("\n\n");
+    const photos = ownElements(post, '[data-testid="tweetPhoto"] img, img[src*="pbs.twimg.com/media/"]');
+    const media = photos.map((image) => {
+      const alt = clean(image.getAttribute("alt") || "");
+      return alt && !/^(?:image|photo)$/i.test(alt) ? `Photo: ${alt}` : "[Photo]";
+    });
+    if (ownElements(post, 'video, [data-testid="videoPlayer"]').length) media.push("[Video]");
+    const content = [body, ...new Set(media)].filter(Boolean).join("\n\n");
+    if (!content) return null;
+    const time = timestampLink.querySelector("time");
+    const posted = time?.getAttribute("datetime") || clean(readableText(timestampLink));
+    return {
+      url: identity.url,
+      title: `${byline} on X: ${clean(content).slice(0, 180)}`,
+      text: [byline, posted ? `Posted: ${posted}` : "", content].filter(Boolean).join("\n\n").slice(0, MAX_TEXT_CHARS),
+      excerpt: content.slice(0, 280),
+      byline,
+      lang
+    };
+  }
+  function captureXPostsFromDocument(doc, pageUrl, isVisible) {
+    if (!canCapturePosts(pageUrl)) return [];
+    const captures = /* @__PURE__ */ new Map();
+    for (const post of doc.querySelectorAll(POST_SELECTOR)) {
+      if (!isVisible(post)) continue;
+      const capture = capturePost(post, pageUrl, doc.documentElement.getAttribute("lang") || null);
+      if (capture && (captures.get(capture.url)?.text.length ?? 0) < capture.text.length) {
+        captures.set(capture.url, capture);
+      }
+    }
+    return [...captures.values()];
+  }
+
   // ../shared/src/capture.ts
   function collapseWhitespace(s) {
     return s.replace(/[ \t\f\v]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
@@ -1976,9 +2087,95 @@
     return { title: title || "(untitled)", text, excerpt, byline, lang };
   }
 
+  // ../extension-chrome/src/x-capture.ts
+  var SCAN_DELAY = 500;
+  var POLL_MS = 2500;
+  var MAX_REMEMBERED_POSTS = 2e3;
+  function startXCapture(doc, getUrl, send) {
+    const records = /* @__PURE__ */ new Map();
+    const pending = /* @__PURE__ */ new Set();
+    let timer;
+    let stopped = false;
+    function isVisible(post) {
+      if (post.closest('[hidden], [aria-hidden="true"]')) return false;
+      const rect = post.getBoundingClientRect();
+      const view = doc.defaultView;
+      if (!view || rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= view.innerHeight || rect.left >= view.innerWidth) return false;
+      let top = Math.max(0, rect.top);
+      let bottom = Math.min(view.innerHeight, rect.bottom);
+      let left = Math.max(0, rect.left);
+      let right = Math.min(view.innerWidth, rect.right);
+      for (let element = post; element; element = element.parentElement) {
+        const style = view.getComputedStyle(element);
+        if (style.visibility === "hidden" || style.visibility === "collapse" || style.display === "none" || style.opacity === "0") return false;
+        if (element === post) continue;
+        const bounds = element.getBoundingClientRect();
+        if (/^(?:auto|scroll|hidden|clip)$/.test(style.overflowY)) {
+          top = Math.max(top, bounds.top);
+          bottom = Math.min(bottom, bounds.bottom);
+        }
+        if (/^(?:auto|scroll|hidden|clip)$/.test(style.overflowX)) {
+          left = Math.max(left, bounds.left);
+          right = Math.min(right, bounds.right);
+        }
+      }
+      return top < bottom && left < right;
+    }
+    function scan() {
+      timer = void 0;
+      if (stopped || doc.visibilityState === "hidden") return;
+      for (const capture of captureXPostsFromDocument(doc, getUrl(), isVisible)) {
+        const signature = JSON.stringify([capture.title, capture.text, capture.byline, capture.lang]);
+        let record = records.get(capture.url);
+        if (pending.has(capture.url) || record?.signature === signature) continue;
+        const prefix = capture.text.replace(/(?:…|\.\.\.)$/, "").trimEnd();
+        if (record && record.text.length > capture.text.length && record.text.startsWith(prefix)) continue;
+        if (!record) {
+          record = { id: crypto.randomUUID(), visitedAt: Date.now(), signature: "", text: "" };
+          records.set(capture.url, record);
+        }
+        const current = record;
+        pending.add(capture.url);
+        void Promise.resolve().then(() => send({ ...capture, id: current.id, visitedAt: current.visitedAt })).then((ack) => {
+          if (ack?.ok && !ack.skipped) {
+            current.signature = signature;
+            current.text = capture.text;
+          }
+        }).catch(() => {
+        }).finally(() => pending.delete(capture.url));
+        while (records.size > MAX_REMEMBERED_POSTS) records.delete(records.keys().next().value);
+      }
+    }
+    function schedule() {
+      if (!stopped && timer === void 0) timer = setTimeout(scan, SCAN_DELAY);
+    }
+    const observer = new MutationObserver(schedule);
+    observer.observe(doc.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["href", "datetime", "data-testid", "dir", "hidden"]
+    });
+    doc.addEventListener("scroll", schedule, { passive: true, capture: true });
+    doc.addEventListener("visibilitychange", schedule);
+    doc.defaultView?.addEventListener("resize", schedule);
+    const poll = setInterval(schedule, POLL_MS);
+    schedule();
+    return () => {
+      stopped = true;
+      observer.disconnect();
+      clearTimeout(timer);
+      clearInterval(poll);
+      doc.removeEventListener("scroll", schedule, true);
+      doc.removeEventListener("visibilitychange", schedule);
+      doc.defaultView?.removeEventListener("resize", schedule);
+    };
+  }
+
   // ../extension-chrome/src/content.ts
   var CAPTURE_DELAY = 1500;
-  var POLL_MS = 2500;
+  var POLL_MS2 = 2500;
   var lastCapturedUrl = "";
   function attempt() {
     const url = location.href;
@@ -2007,12 +2204,16 @@
   function scheduleCaptures() {
     for (const d of RETRY_DELAYS) setTimeout(attempt, d);
   }
-  scheduleCaptures();
-  var href = location.href;
-  setInterval(() => {
-    if (location.href !== href) {
-      href = location.href;
-      scheduleCaptures();
-    }
-  }, POLL_MS);
+  if (isXPageUrl(location.href)) {
+    startXCapture(document, () => location.href, (page) => chrome.runtime.sendMessage({ type: "capture", page }));
+  } else {
+    scheduleCaptures();
+    let href = location.href;
+    setInterval(() => {
+      if (location.href !== href) {
+        href = location.href;
+        scheduleCaptures();
+      }
+    }, POLL_MS2);
+  }
 })();
